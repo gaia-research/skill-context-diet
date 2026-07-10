@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Test artifacts
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Session logs — never commit these (contain agent conversation content)
+*.jsonl
