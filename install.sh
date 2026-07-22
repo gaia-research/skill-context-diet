@@ -46,8 +46,11 @@ CANDIDATES=()
 [ -d "$HOME/.claude/skills" ]     && CANDIDATES+=("$HOME/.claude/skills")
 [ -d "$HOME/.agents/skills" ]     && CANDIDATES+=("$HOME/.agents/skills")
 
-TARGET_DIR=""
-if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+TARGET_DIR="${CONTEXT_DIET_SKILLS_DIR:-}"
+if [ -n "$TARGET_DIR" ]; then
+  mkdir -p "$TARGET_DIR"
+  info "Using requested skills directory: ${BOLD}${TARGET_DIR}${RESET}"
+elif [ "${#CANDIDATES[@]}" -eq 0 ]; then
   info "No skills directory found. Creating ${BOLD}.agents/skills${RESET} in current dir."
   mkdir -p ".agents/skills"
   TARGET_DIR=".agents/skills"

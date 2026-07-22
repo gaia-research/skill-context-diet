@@ -79,6 +79,9 @@ replacement, or use its non-interactive update mode:
 bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh) --update
 ```
 
+When several skill roots exist, select one interactively or set
+`CONTEXT_DIET_SKILLS_DIR=.agents/skills` for unattended updates.
+
 ## License
 
 MIT. Part of the [Gaia Research](https://github.com/gaia-research) ecosystem.
