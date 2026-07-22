@@ -2,6 +2,8 @@
 
 **Your `CLAUDE.md` is over the limit. Which rules is the harness about to silently drop?**
 
+<img width="1672" height="941" alt="Generated image 3" src="https://github.com/user-attachments/assets/6b2c2aa7-7294-4e53-81bf-72cfd1cd8817" />
+
 Claude Code warns past **40,000 characters** and may truncate beyond it — quietly disabling
 whatever rules fell past the cutoff. The same is true for any agent-context file: `.cursorrules`,
 `AGENTS.md`, a raw system prompt. `context-diet` measures where the budget goes, section by
