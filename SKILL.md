@@ -1,104 +1,66 @@
 ---
 name: context-diet
 description: >-
-  Measure and compact an oversized agent-context file (CLAUDE.md, .cursorrules,
-  AGENTS.md, a system prompt) so it fits under the harness char limit WITHOUT
-  losing any rule. Reports per-section size, runs a bake-off of compaction
-  strategies, and scores each on faithfulness (rules retained) before applying
-  the winner. Use when a context file is over the limit or bloated. Triggers:
-  "CLAUDE.md too big", "over the char limit", "context file too large", "compact
-  my agent config", "trim CLAUDE.md", "context diet", "shrink my system prompt",
-  "/context-diet".
-version: 1.0.0
+  Audit and optimize agent-context files of any size, including CLAUDE.md,
+  AGENTS.md, .cursorrules, and system prompts. Measure recurring context cost,
+  preserve operational knowledge, estimate safe through aggressive reduction,
+  and compact, externalize, retire, or delete context only with explicit user
+  authorization. Use for context cleanup, prompt maintenance, stale rules,
+  oversized files, token reduction, or /context-diet.
 ---
 
-# context-diet — Context Compaction Report
+# Context Diet
 
-Measure where an agent-context file's character budget goes, section by section,
-then compact it under the limit while provably retaining every rule.
+Reduce recurring context cost without silently discarding operational knowledge.
+Treat a harness limit as an optional safety constraint, never as an eligibility gate.
 
-## Install
+## Workflow
 
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)
-```
+1. Resolve the target file and the user's natural-language goal.
+2. Run `python3 context_diet.py <file> --json` for the baseline.
+3. Run `python3 context_diet.py <file> --init-plan --goal "<goal>"` to create or
+   locate `.context-diet/<file>.plan.json`.
+4. Inventory atomic directives, invariants, operational facts, exact literals,
+   procedures, prohibitions, dated state, and rationale. Mark incident-codified,
+   CI-enforced, authorization, safety, and user-preference items protected.
+5. Classify each unit: `keep`, `condense`, `externalize`, `retire`, or `delete`.
+6. Compare `no-op`, `condense`, `externalize`, `telegraphic`, and `hybrid`
+   candidates. Audit every candidate adversarially against the inventory.
+7. Run `python3 context_diet.py <file> --proposal-template` and fill that JSON
+   with the audited inventory, actions, exact tier artifacts, protected floor,
+   and recommendation. Import it with `--import-proposal <json>`; do not hand-edit
+   plan state. Report safe, recommended, and aggressive estimates. An 80%
+   request is a stretch goal, not permission to cross the protected floor.
 
-## When to use
+## Authorization boundary
 
-- A `CLAUDE.md` / `.cursorrules` / `AGENTS.md` / system prompt is over the harness
-  limit (Claude Code warns past **40,000 chars** and may truncate beyond it).
-- A context file is bloated and you want to know which sections to cut.
-- You want a faithfulness-checked compaction, not a blind delete.
+An initial invocation is read-only: save the plan, show estimates and proposed
+retire/delete actions, then stop. Never infer destructive authorization from a
+request to audit, estimate, review, or "try" a target.
 
-## The two objectives
+On a later invocation, discover the saved plan automatically. Apply it only when
+the user clearly authorizes mutation (for example: "apply", "do it", "remove
+these", "accept the recommendation", or "go aggressive"). Before editing:
 
-Compaction is a two-objective problem:
+1. Run `python3 context_diet.py <file> --check-plan`; reject stale plans.
+2. Run `python3 context_diet.py <file> --checkpoint --tier <tier>` for recovery
+   and to bind authorization to one exact candidate artifact.
+3. Apply only the authorized tier and user instructions.
+4. Re-measure, validate Markdown and links, and re-audit retained knowledge.
+5. Run `python3 context_diet.py <file> --complete` and report the diff, reduction,
+   retired context, protected floor, and recovery path.
 
-1. **Reduce size** below the limit (target = limit − headroom).
-2. **Retain 100% of rules** — an agent-context file is mostly guardrails; any one
-   dropped silently lets an agent ship a broken state.
+If authorization is ambiguous, show the recommendation without editing.
 
-`context-diet` optimizes reduction **subject to** faithfulness, never the reverse.
+## Selection rules
 
-## How it works
+- Require 100% retention of protected items; weakened counts as lost.
+- Score inline and total-corpus retention separately. Externalization adds a
+  retrieval hop and must not win solely by moving text elsewhere.
+- Include `no-op`; recommend change only when it materially improves context.
+- Prefer fewer retrieval hops and a smaller diff when faithfulness is equal.
+- Retire obsolete context from the active file; do not leave token-consuming
+  "deprecated" prose inline. Git or the checkpoint provides history.
 
-### 1. Measure (`context_diet.py`)
-
-```bash
-python3 context_diet.py CLAUDE.md            # human report
-python3 context_diet.py CLAUDE.md --json     # machine-readable baseline
-python3 context_diet.py .cursorrules --limit 40000
-```
-
-Splits on `##` headings, reports per-section chars + approx tokens (chars/4),
-total vs `--limit`, and the ranked compaction targets. **Char count is
-authoritative** — the limit is defined in characters; tiktoken is not required.
-
-### 2. Bake-off (four strategies)
-
-| Strategy | What it does |
-|---|---|
-| **Externalize + link** | Move large playbooks to linked files; leave stub = invariant + pointer |
-| **Condense in place** | Strip retro/anecdote prose, bullet-ify, keep every rule; no new files |
-| **Telegraphic** | Aggressive lexical compression of non-load-bearing prose; keep all literals |
-| **Hybrid** | Externalize top-N, condense mid-size, keep enforced sections verbatim |
-
-### 3. Faithfulness scoring (the control)
-
-An exhaustive **rule inventory** is extracted from the original (atomic, testable
-directives; each tagged load-bearing if CI-enforced or incident-codified). Each
-candidate is then adversarially audited — every rule classified
-**present / weakened / missing** against the candidate corpus (its file **plus**
-any linked files). **Faithfulness = present / total.**
-
-**Disqualification:** over the hard limit, or any load-bearing rule lost.
-
-### 4. Winner + apply
-
-Winner = qualified candidate with **max faithfulness**, tie-break on larger
-reduction. Its rewrite is applied; the analyzer re-run confirms it fits.
-
-## Constraints (must-keep set)
-
-Before compacting, identify the **do-not-touch** sections — CI-enforced or
-incident-codified rules that must stay fully inline. For `gaia-skill-tree`'s
-CLAUDE.md these are: Redaction Exemptions, Branch Scope allowlists,
-Programmatic-First / CLI Pre-Flight, Authorization, Generated Artifacts
-(Class P/S), Versioning hard rules. **Re-derive this set for any other file**
-(§4 of METHODOLOGY.md).
-
-## Reproducibility
-
-See [METHODOLOGY.md](./METHODOLOGY.md) for the full paper-style protocol and how
-to replay the experiment on a different context type. The inventory + scoring are
-the reproducible control; candidate wording varies, but which rules must survive
-does not.
-
-## Notes
-
-- Externalization ≠ deletion: a rule moved to a linked file is still one hop away.
-  The report separates in-context size from total-corpus size so the trade-off is
-  explicit.
-- LLM compaction is stochastic. For a strict replay, cache the winning candidate
-  corpus and re-score it; report faithfulness (stable) + achieved reduction
-  (run-specific).
+Read [METHODOLOGY.md](./METHODOLOGY.md) only for benchmark reproduction, detailed
+scoring guidance, or uncertainty about inventory completeness.

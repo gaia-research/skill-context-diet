@@ -13,7 +13,7 @@ Output:
   --outdir    directory for the three PNGs
 
 Charts:
-  1. size-before-after.png   — total chars before/after vs the 40k limit
+  1. size-before-after.png   — total chars before/after vs an optional limit
   2. section-histogram.png    — top-N section sizes before vs after
   3. bakeoff-scatter.png       — reduction% (x) vs faithfulness% (y), winner starred
 """
@@ -36,9 +36,6 @@ PANEL = "#141922"
 GRID = "#2a323f"
 TEXT = "#e6edf3"
 MUTED = "#8b97a7"
-LIMIT = 40_000
-
-
 def styleAxes(ax):
     ax.set_facecolor(PANEL)
     for spine in ax.spines.values():
@@ -62,15 +59,18 @@ def chartSize(baseline, after, out):
     before = baseline["totalChars"]
     aft = after["totalChars"]
     bars = ax.bar(["Before", "After"], [before, aft], color=[MUTED, PINK], width=0.55, zorder=3)
-    ax.axhline(LIMIT, color=GOLD, linestyle="--", linewidth=1.6, zorder=4,
-               label=f"Limit {LIMIT:,}")
+    limit = baseline.get("limit")
+    if limit:
+        ax.axhline(limit, color=GOLD, linestyle="--", linewidth=1.6, zorder=4,
+                   label=f"Limit {limit:,}")
     for b, v in zip(bars, [before, aft]):
         ax.text(b.get_x() + b.get_width() / 2, v + 600, f"{v:,}",
                 ha="center", color=TEXT, fontsize=11, fontweight="bold")
     ax.set_ylabel("Characters")
-    ax.set_title("CLAUDE.md size — before vs after Context Diet", fontweight="bold")
-    ax.legend(facecolor=PANEL, edgecolor=GRID, labelcolor=TEXT)
-    ax.set_ylim(0, max(before, LIMIT) * 1.12)
+    ax.set_title(f"{Path(baseline['file']).name} — before vs after Context Diet", fontweight="bold")
+    if limit:
+        ax.legend(facecolor=PANEL, edgecolor=GRID, labelcolor=TEXT)
+    ax.set_ylim(0, max(before, limit or 0) * 1.12)
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor=INK)
     plt.close(fig)

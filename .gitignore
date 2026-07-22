@@ -18,6 +18,7 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+.context-diet/
 
 # Session logs — never commit these (contain agent conversation content)
 *.jsonl
