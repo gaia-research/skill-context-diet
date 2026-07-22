@@ -64,7 +64,15 @@ python3 context_diet.py CLAUDE.md --init-plan --goal "Get near 80% if defensible
 python3 context_diet.py CLAUDE.md --proposal-template > proposal.json
 python3 context_diet.py CLAUDE.md --import-proposal proposal.json
 python3 context_diet.py CLAUDE.md --check-plan
+python3 context_diet.py CLAUDE.md --leaderboard-preview
+# Only after the user approves the exact preview:
+python3 context_diet.py CLAUDE.md --submit-leaderboard --confirm
 ```
+
+Leaderboard submission is private by default and opt-in per run. The preview
+contains aggregate before/after token counts, reduction percentage, strategy,
+and an optional handle. It never includes file contents, paths, rules, prompts,
+or linked files.
 
 Plans live at `.context-diet/<file>.plan.json`; add `.context-diet/` to the target
 repository's ignore file if desired. See [WORKFLOW.md](./WORKFLOW.md) for the

@@ -8,6 +8,8 @@ import json
 import re
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,7 @@ TOKENS_PER_CHAR = 0.25
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 PLAN_VERSION = 2
 ACTIONS = {"keep", "condense", "externalize", "retire", "delete"}
+DEFAULT_LEADERBOARD_ENDPOINT = "https://research.gaiaskilltree.com/api/context-diet/leaderboard"
 
 
 @dataclass
@@ -180,6 +183,25 @@ def writeJson(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def leaderboardPayload(plan: dict, handle: str = "") -> dict:
+    if plan.get("status") != "applied" or not isinstance(plan.get("result"), dict):
+        raise ValueError("leaderboard submission requires a completed applied plan")
+    originalTokens = plan.get("original", {}).get("approxTokens")
+    afterChars = plan["result"].get("chars")
+    if not isinstance(originalTokens, int) or not isinstance(afterChars, int):
+        raise ValueError("completed plan is missing aggregate token metrics")
+    payload = {
+        "tokensBefore": originalTokens,
+        "tokensAfter": approxTokens(afterChars),
+        "reductionPct": plan["result"].get("reductionPct"),
+        "strategyKey": plan.get("authorizedTier", "unknown"),
+    }
+    cleanedHandle = re.sub(r"[^A-Za-z0-9_-]", "", handle.strip())[:32]
+    if cleanedHandle:
+        payload["handle"] = cleanedHandle
+    return payload
+
+
 def initPlan(source: Path, planPath: Path, goal: str, baseline: dict,
              replan: bool = False) -> tuple[dict, bool]:
     if planPath.is_file():
@@ -238,12 +260,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--import-proposal", metavar="JSON", help="merge and validate a semantic proposal")
     parser.add_argument("--tier", choices=("safe", "recommended", "aggressive"),
                         help="authorized tier for --checkpoint")
+    parser.add_argument("--handle", default="", help="optional public leaderboard handle")
+    parser.add_argument("--confirm", action="store_true", help="confirm external metric submission")
+    parser.add_argument("--endpoint", default=DEFAULT_LEADERBOARD_ENDPOINT)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--init-plan", action="store_true")
     mode.add_argument("--proposal-template", action="store_true")
     mode.add_argument("--check-plan", action="store_true")
     mode.add_argument("--checkpoint", action="store_true")
     mode.add_argument("--complete", action="store_true")
+    mode.add_argument("--leaderboard-preview", action="store_true")
+    mode.add_argument("--submit-leaderboard", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -370,6 +397,39 @@ def main(argv: list[str] | None = None) -> int:
                           if before["totalChars"] else 0}
         writeJson(planPath, plan)
         print(json.dumps(plan["result"], indent=2))
+        return 0
+    if args.leaderboard_preview or args.submit_leaderboard:
+        try:
+            plan = readPlan(planPath)
+            payload = leaderboardPayload(plan, args.handle)
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if args.leaderboard_preview:
+            print(json.dumps({
+                "endpoint": args.endpoint,
+                "payload": payload,
+                "excluded": ["file contents", "file path", "rule text", "prompt text", "linked files"],
+                "submitted": False,
+            }, indent=2))
+            return 0
+        if not args.confirm:
+            print("error: submission requires explicit user consent and --confirm", file=sys.stderr)
+            return 2
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            args.endpoint,
+            data=body,
+            headers={"Content-Type": "application/json", "User-Agent": "context-diet-skill/1.1"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            print(f"error: leaderboard submission failed: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({"submitted": bool(result.get("ok")), "endpoint": args.endpoint}, indent=2))
         return 0
 
     print(json.dumps(baseline, indent=2) if args.json else renderReport(baseline))

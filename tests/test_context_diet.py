@@ -98,6 +98,13 @@ class ContextDietTests(unittest.TestCase):
             result = json.loads(self.run_cli(target, "--complete").stdout)
             self.assertGreater(result["reduction"], 0)
             self.assertGreater(result["reductionPct"], 0)
+            preview = json.loads(self.run_cli(target, "--leaderboard-preview").stdout)
+            self.assertFalse(preview["submitted"])
+            self.assertEqual(set(preview["payload"]), {
+                "tokensBefore", "tokensAfter", "reductionPct", "strategyKey"
+            })
+            denied = self.run_cli(target, "--submit-leaderboard", expected=2)
+            self.assertIn("explicit user consent", denied.stderr)
 
     def test_rejects_aggressive_tier_below_protected_floor(self):
         with tempfile.TemporaryDirectory() as directory:

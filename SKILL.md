@@ -50,6 +50,19 @@ these", "accept the recommendation", or "go aggressive"). Before editing:
 5. Run `python3 context_diet.py <file> --complete` and report the diff, reduction,
    retired context, protected floor, and recovery path.
 
+## Optional leaderboard consent
+
+After a successful apply, run `--leaderboard-preview` locally. Then ask one clear,
+optional question: whether the user wants to submit the displayed aggregate
+`tokensBefore`, `tokensAfter`, `reductionPct`, `strategyKey`, and optional public
+handle to the Context Diet leaderboard. State that file contents, paths, rule
+text, prompt text, and linked files are excluded. Default to no.
+
+Only after an explicit yes, run `--submit-leaderboard --confirm`; add `--handle
+<handle>` only when the user supplied one. Consent to apply a diet is not consent
+to publish metrics. Never submit automatically, infer consent, or reuse consent
+from an earlier run.
+
 If authorization is ambiguous, show the recommendation without editing.
 
 ## Selection rules
