@@ -10,14 +10,17 @@ and produce a comparable before/after result. It is the "Methods" section of the
 
 ## 1. Problem statement
 
-An agent-context file is recurring input: every unnecessary character is reread on every turn.
-Some harnesses also impose hard budgets; Claude Code, for example, warns past **40,000
-characters** and may truncate beyond it. The naive fix—"delete the least important
-paragraphs"—is unsafe when the file contains incident-codified guardrails and operational facts.
+An agent-context file is recurring input — every character is re-read on every turn, so stale or
+redundant text is a tax paid over and over. Some harnesses also impose a hard budget: Claude Code
+warns past **40,000 characters** and may **truncate** beyond it, silently disabling whatever rules
+fell past the cutoff. But the naive fix — "delete the least important paragraphs" — is unsafe when
+most of the file is incident-codified guardrails and operational facts (any one of which, dropped,
+lets an agent ship a CI-breaking state).
 
-**Goal:** minimize useful recurring inline context while retaining all protected operational
-knowledge. A configured limit is a safety constraint, not an eligibility gate. Destructive
-retirement is proposed in a read-only audit and applied only after later explicit authorization.
+**Goal:** minimize the recurring inline context while provably retaining **every protected rule**.
+The limit is a safety constraint, not an eligibility gate — a file well under it can still carry
+cost worth cutting. Destructive retirement is proposed in a read-only audit and applied only after
+a later, explicit authorization.
 
 ## 2. Metrics (the five Context Diet / Benchmark 001 signals)
 
@@ -68,10 +71,12 @@ linked files — a rule moved to a linked file counts as present).
   missing/weakened.
 
 ### Phase D — Winner selection
-Report the Pareto frontier across protected retention, inline retention, total-corpus retention,
-retrieval hops, new files, diff complexity, and reduction. Prefer fewer hops and smaller diffs at
-equal faithfulness. The initial run saves estimates and stops. A later invocation may apply the
-user-authorized tier after verifying the source hash and creating a checkpoint.
+Among **qualified** candidates, report the Pareto frontier across protected retention, inline
+retention, total-corpus retention, retrieval hops, new files, diff complexity, and reduction —
+preferring fewer hops and smaller diffs at equal faithfulness. The `no-op` control wins outright
+when nothing else earns its diff. The initial run saves the estimates and **stops**; a later
+invocation applies the user-authorized tier only after verifying the source hash and creating a
+recoverable checkpoint (the **after** measurement).
 
 ### Phase E — Report + charts
 `make_charts.py` renders three privacy-safe PNGs (size before/after, per-section histogram,
