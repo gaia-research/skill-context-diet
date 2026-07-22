@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -10,6 +11,7 @@ import shutil
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -183,23 +185,45 @@ def writeJson(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def leaderboardPayload(plan: dict, handle: str = "") -> dict:
-    if plan.get("status") != "applied" or not isinstance(plan.get("result"), dict):
-        raise ValueError("leaderboard submission requires a completed applied plan")
-    originalTokens = plan.get("original", {}).get("approxTokens")
-    afterChars = plan["result"].get("chars")
-    if not isinstance(originalTokens, int) or not isinstance(afterChars, int):
-        raise ValueError("completed plan is missing aggregate token metrics")
-    payload = {
-        "tokensBefore": originalTokens,
-        "tokensAfter": approxTokens(afterChars),
-        "reductionPct": plan["result"].get("reductionPct"),
-        "strategyKey": plan.get("authorizedTier", "unknown"),
-    }
+def publicGitHubFile(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    parts = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    if (parsed.scheme != "https" or parsed.hostname != "github.com" or parsed.username
+            or parsed.password or parsed.port or len(parts) < 5 or parts[2] != "blob"):
+        raise ValueError("evidence must be a public GitHub /blob/ file URL")
+    owner, repo, _, ref = parts[:4]
+    path = "/".join(parts[4:])
+    if not re.match(r"^[A-Za-z0-9_.-]+$", owner + repo + ref):
+        raise ValueError("invalid GitHub evidence URL")
+    apiPath = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
+    apiUrl = f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/contents/{apiPath}?ref={urllib.parse.quote(ref)}"
+    request = urllib.request.Request(apiUrl, headers={"Accept": "application/vnd.github+json", "User-Agent": "context-diet-skill/1.1"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        data = json.loads(response.read(500_000).decode("utf-8"))
+    if data.get("type") != "file" or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+        raise ValueError("GitHub did not return a readable context file")
+    raw = base64.b64decode(data["content"])
+    if len(raw) > 200_000:
+        raise ValueError("context evidence exceeds 200 KB")
+    return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def leaderboardPayload(beforeUrl: str, afterUrl: str, handle: str = "") -> tuple[dict, dict]:
+    before = publicGitHubFile(beforeUrl)
+    after = publicGitHubFile(afterUrl)
+    if len(after) >= len(before):
+        raise ValueError("after evidence must be smaller than before evidence")
+    payload = {"beforeUrl": beforeUrl, "afterUrl": afterUrl}
     cleanedHandle = re.sub(r"[^A-Za-z0-9_-]", "", handle.strip())[:32]
     if cleanedHandle:
         payload["handle"] = cleanedHandle
-    return payload
+    metrics = {
+        "tokensBefore": approxTokens(len(before)),
+        "tokensAfter": approxTokens(len(after)),
+        "reductionPct": round((len(before) - len(after)) / len(before) * 100, 1),
+        "strategyKey": "verified-public-git",
+    }
+    return payload, metrics
 
 
 def initPlan(source: Path, planPath: Path, goal: str, baseline: dict,
@@ -263,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--handle", default="", help="optional public leaderboard handle")
     parser.add_argument("--confirm", action="store_true", help="confirm external metric submission")
     parser.add_argument("--endpoint", default=DEFAULT_LEADERBOARD_ENDPOINT)
+    parser.add_argument("--before-url", default="", help="public GitHub /blob/ revision before the diet")
+    parser.add_argument("--after-url", default="", help="public GitHub /blob/ revision after the diet")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--init-plan", action="store_true")
     mode.add_argument("--proposal-template", action="store_true")
@@ -399,23 +425,26 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan["result"], indent=2))
         return 0
     if args.leaderboard_preview or args.submit_leaderboard:
+        if args.submit_leaderboard and not args.confirm:
+            print("error: submission requires explicit user consent and --confirm", file=sys.stderr)
+            return 2
+        if not args.before_url or not args.after_url:
+            print("error: verified leaderboard requires --before-url and --after-url", file=sys.stderr)
+            return 2
         try:
-            plan = readPlan(planPath)
-            payload = leaderboardPayload(plan, args.handle)
-        except (ValueError, json.JSONDecodeError) as exc:
+            payload, metrics = leaderboardPayload(args.before_url, args.after_url, args.handle)
+        except (ValueError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         if args.leaderboard_preview:
             print(json.dumps({
                 "endpoint": args.endpoint,
                 "payload": payload,
-                "excluded": ["file contents", "file path", "rule text", "prompt text", "linked files"],
+                "serverDerivedMetrics": metrics,
+                "excluded": ["file contents", "private file paths", "rule text", "prompt text", "linked files"],
                 "submitted": False,
             }, indent=2))
             return 0
-        if not args.confirm:
-            print("error: submission requires explicit user consent and --confirm", file=sys.stderr)
-            return 2
         body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             args.endpoint,

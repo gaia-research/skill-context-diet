@@ -52,16 +52,19 @@ these", "accept the recommendation", or "go aggressive"). Before editing:
 
 ## Optional leaderboard consent
 
-After a successful apply, run `--leaderboard-preview` locally. Then ask one clear,
+After a successful apply with public Git history, run `--leaderboard-preview` with
+public GitHub `--before-url` and `--after-url` blob revisions. Then ask one clear,
 optional question: whether the user wants to submit the displayed aggregate
-`tokensBefore`, `tokensAfter`, `reductionPct`, `strategyKey`, and optional public
-handle to the Context Diet leaderboard. State that file contents, paths, rule
-text, prompt text, and linked files are excluded. Default to no.
+server-derived metrics, those two public evidence URLs, and an optional public
+handle to the verified Context Diet leaderboard. State that file contents,
+private paths, rule text, prompt text, and linked files are excluded. Default to no.
 
-Only after an explicit yes, run `--submit-leaderboard --confirm`; add `--handle
+Only after an explicit yes, run the same command with `--submit-leaderboard
+--confirm`; add `--handle
 <handle>` only when the user supplied one. Consent to apply a diet is not consent
 to publish metrics. Never submit automatically, infer consent, or reuse consent
-from an earlier run.
+from an earlier run. Private diets stay local and unranked because their result
+cannot be independently verified without exposing private evidence.
 
 If authorization is ambiguous, show the recommendation without editing.
 

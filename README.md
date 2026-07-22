@@ -64,15 +64,19 @@ python3 context_diet.py CLAUDE.md --init-plan --goal "Get near 80% if defensible
 python3 context_diet.py CLAUDE.md --proposal-template > proposal.json
 python3 context_diet.py CLAUDE.md --import-proposal proposal.json
 python3 context_diet.py CLAUDE.md --check-plan
-python3 context_diet.py CLAUDE.md --leaderboard-preview
+python3 context_diet.py CLAUDE.md --leaderboard-preview \
+  --before-url https://github.com/owner/repo/blob/BEFORE_SHA/CLAUDE.md \
+  --after-url https://github.com/owner/repo/blob/AFTER_SHA/CLAUDE.md
 # Only after the user approves the exact preview:
-python3 context_diet.py CLAUDE.md --submit-leaderboard --confirm
+python3 context_diet.py CLAUDE.md --submit-leaderboard --confirm \
+  --before-url https://github.com/owner/repo/blob/BEFORE_SHA/CLAUDE.md \
+  --after-url https://github.com/owner/repo/blob/AFTER_SHA/CLAUDE.md
 ```
 
-Leaderboard submission is private by default and opt-in per run. The preview
-contains aggregate before/after token counts, reduction percentage, strategy,
-and an optional handle. It never includes file contents, paths, rules, prompts,
-or linked files.
+Leaderboard submission is opt-in per run and ranked only with public GitHub
+before/after evidence. The server fetches both revisions and calculates the
+metrics; it never accepts slider or client-supplied scores. Private diets remain
+local and unranked.
 
 Plans live at `.context-diet/<file>.plan.json`; add `.context-diet/` to the target
 repository's ignore file if desired. See [WORKFLOW.md](./WORKFLOW.md) for the
