@@ -1,13 +1,15 @@
 # context-diet
 
-**Your `CLAUDE.md` is over the limit. Which rules is the harness about to silently drop?**
+**Your agent re-reads `CLAUDE.md` every turn. How much of it still earns the cost — and which rules would you lose if you trimmed it blind?**
 
 <img width="1672" height="941" alt="Generated image 3" src="https://github.com/user-attachments/assets/6b2c2aa7-7294-4e53-81bf-72cfd1cd8817" />
 
 Claude Code warns past **40,000 characters** and may truncate beyond it — quietly disabling
-whatever rules fell past the cutoff. The same is true for any agent-context file: `.cursorrules`,
-`AGENTS.md`, a raw system prompt. `context-diet` measures where the budget goes, section by
-section, then compacts the file under the limit **while proving no rule was lost**.
+whatever rules fell past the cutoff. But size isn't the only tax: every character in an
+agent-context file (`.cursorrules`, `AGENTS.md`, a raw system prompt) is recurring input, paid
+again on every turn, whether you're over the limit or not. `context-diet` measures where the
+budget goes, section by section, then compacts the file **while proving no rule was lost** — at
+any size, not just over the line.
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)
@@ -38,8 +40,17 @@ Largest sections (compaction targets)
   3,325     831    435  Known Skill Explorer Issues
 ```
 
-That's the measurement. The skill then runs a **bake-off** of compaction strategies and applies
-the one that shrinks the most *without losing a single rule*.
+That's the measurement. From there you just talk to it:
+
+```text
+/context-diet CLAUDE.md
+/context-diet CLAUDE.md try to get near 80%
+/context-diet CLAUDE.md drop the stale branch history
+/context-diet CLAUDE.md looks good, apply the recommendation
+```
+
+The first call is **read-only** — it audits, reports safe / recommended / aggressive estimates,
+and saves a source-hashed plan. Nothing is touched until a later call clearly says to apply it.
 
 ---
 
@@ -51,29 +62,52 @@ ships a state that breaks CI, and the next agent works around it, and the drift 
 
 So compaction here is a **two-objective** problem:
 
-1. **Reduce size** under the limit.
-2. **Retain 100% of rules** — measured, not assumed.
+1. **Reduce size** — cut what's redundant, stale, or cheaper to look up than to carry.
+2. **Retain 100% of the load-bearing rules** — measured, not assumed.
 
-`context-diet` extracts a ground-truth **rule inventory** from the original, generates several
-compaction candidates, then **adversarially audits** each one — classifying every rule as
-present / weakened / missing against the result (including any linked files). The winner is the
-qualified candidate with the highest faithfulness. Anything that drops a load-bearing rule is
-disqualified outright.
+`context-diet` extracts a ground-truth **inventory** from the original — directives, invariants,
+operational facts, exact literals, procedures, prohibitions, dated state, rationale — then
+**adversarially audits** each candidate, classifying every item as present / weakened / missing
+against the result (including any linked files). Anything that weakens a protected rule is
+disqualified outright. The protected floor — CI rules, safety and authorization boundaries,
+incident-codified invariants, exact literals, your explicit preferences — is **never** sacrificed
+to hit a number. An 80% request is a stretch goal, not a quota.
 
 ---
 
-## Compaction strategies
+## What it does to each line
+
+Every unit of context gets one of five verdicts:
+
+| Verdict | What it means |
+|---|---|
+| **Keep** | Frequently needed, or protected — stays inline, verbatim |
+| **Condense** | Real content wrapped in removable prose — tighten, keep the rule |
+| **Externalize** | Useful but low-frequency — move one hop away into a linked file |
+| **Retire** | Superseded or expired — pulled from the active file (history keeps it) |
+| **Delete** | Duplicate, contradicted, or cheaply rediscoverable — gone |
+
+Externalization doesn't delete — it moves detail one hop away into a linked file, so the rule
+still counts as present. The report separates **in-context size** from **total-corpus size** so
+the trade-off is explicit.
+
+---
+
+## How it picks
+
+It runs a **bake-off** — five candidates, scored against the inventory:
 
 | Strategy | What it does |
 |---|---|
+| **No-op** | Change nothing — the control. Wins when nothing else earns its diff |
 | **Externalize + link** | Move large playbooks to linked files; leave a stub = invariant + pointer |
 | **Condense in place** | Strip retro/anecdote prose, bullet-ify, keep every rule; no new files |
 | **Telegraphic** | Aggressive lexical compression of non-load-bearing prose; keep all literals |
 | **Hybrid** | Externalize the largest, condense the mid-size, keep enforced sections verbatim |
 
-Externalization doesn't delete — it moves detail one hop away into a linked file, so the rule
-still counts as present. The report separates **in-context size** from **total-corpus size** so
-the trade-off is explicit.
+Scoring weighs protected retention, inline retention, total-corpus retention, retrieval hops,
+new files, diff complexity, and size. Externalization can't win just by shoving text elsewhere,
+and no-op wins outright when no candidate is a real improvement.
 
 ---
 
@@ -87,8 +121,12 @@ python3 context_diet.py path/to/system-prompt.md --json > baseline.json
 
 # From an agent conversation (after install)
 /context-diet CLAUDE.md
+/context-diet CLAUDE.md looks good, apply the recommendation
 ```
 
+The read-only audit saves its plan to `.context-diet/<file>.plan.json` (add `.context-diet/`
+to your ignore file if you'd rather not commit it). A later apply re-checks the source hash,
+takes a recoverable checkpoint, applies only the tier you authorized, then re-audits the result.
 The `--json` baseline feeds the bake-off workflow and the chart generator.
 
 ---
@@ -97,7 +135,8 @@ The `--json` baseline feeds the bake-off workflow and the chart generator.
 
 This tool is the packaged output of **Context Diet — Lab 001** (a Gaia Research benchmark). The
 full paper-style protocol — metrics, procedure, how to replay on a different context type, and
-threats to validity — is in [METHODOLOGY.md](./METHODOLOGY.md).
+threats to validity — is in [METHODOLOGY.md](./METHODOLOGY.md). The audit → apply state machine
+is in [WORKFLOW.md](./WORKFLOW.md).
 
 The inventory and faithfulness scoring are the **reproducible control**: candidate wording varies
 run to run, but *which rules must survive* does not.
@@ -111,18 +150,34 @@ run to run, but *which rules must survive* does not.
 
 ---
 
+## Updating
+
+Installed copies don't update themselves. Re-run the installer and approve the replacement, or
+use its non-interactive mode:
+
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh) --update
+```
+
+If you've got several skill roots, pick one when prompted, or set
+`CONTEXT_DIET_SKILLS_DIR=.agents/skills` to update unattended.
+
+---
+
 ## FAQ
 
 | Question | Answer |
 |---|---|
+| **Do I have to be over the limit to use it?** | No. The 40,000-character limit is a safety indicator, not the gate. Any file that's re-read every turn pays for stale or redundant text; `context-diet` estimates a defensible cut at any size. |
 | **What's the 40,000-character limit?** | Claude Code warns past 40k chars in `CLAUDE.md` and may silently truncate beyond it. Same risk applies to any agent-context file (`.cursorrules`, `AGENTS.md`, system prompts). |
 | **What counts as "a rule"?** | Any imperative or guardrail — MUST/SHOULD statements, forbidden patterns, ordered procedures, literal command strings. `context-diet` extracts these into an inventory before compacting. |
-| **How does it know a rule survived?** | It re-scans the compacted file (and any linked files) for each rule in the inventory and classifies it as **present**, **weakened**, or **missing**. A candidate that drops any load-bearing rule is disqualified. |
-| **Won't externalization just move the problem?** | The report separates **in-context size** from **total-corpus size**, so the trade-off is explicit. Externalized rules still count as present because the agent can follow the link. |
-| **Does it edit my `CLAUDE.md` in place?** | No. It emits candidates and a winner; you review the diff before overwriting. `--json` gives the raw baseline for scripting. |
-| **Which compaction strategy should I use?** | Let the bake-off pick. It runs all four (externalize, condense, telegraphic, hybrid) and returns the highest-faithfulness candidate under the limit. |
+| **How does it know a rule survived?** | It re-scans the compacted file (and any linked files) for each item in the inventory and classifies it **present**, **weakened**, or **missing**. A candidate that drops any protected rule is disqualified. |
+| **Will it edit my `CLAUDE.md` behind my back?** | No. The first call is read-only and just saves a plan. It only mutates on a later call that clearly authorizes it, after re-checking the source hash and taking a recoverable checkpoint. |
+| **Won't externalization just move the problem?** | The report separates **in-context size** from **total-corpus size**, so the trade-off is explicit. Externalized rules still count as present because the agent can follow the link — but externalization can't win the bake-off on size alone. |
+| **Which strategy should I use?** | Let the bake-off pick. It runs all five (no-op, externalize, condense, telegraphic, hybrid) and returns the highest-faithfulness candidate that actually earns its diff. |
 | **Can I use it on non-Claude files?** | Yes. It's a plain text analyzer — works on `.cursorrules`, `AGENTS.md`, raw system prompts, or any Markdown file. Pass `--limit` for your target budget. |
 | **Does it need an API key?** | No. The analyzer is stdlib Python. Compaction candidates are generated by your agent's LLM inside its own session. |
+| **What's the leaderboard?** | Opt-in, per run, and only with public GitHub before/after evidence. The server fetches both revisions and computes the metrics itself — it never trusts a client-supplied score. Private diets stay local and unranked. |
 | **How do I install it?** | `bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)` — auto-detects your skills dir. |
 | **What's the methodology?** | See [METHODOLOGY.md](./METHODOLOGY.md) — full metrics, procedure, replay protocol, and threats to validity. |
 

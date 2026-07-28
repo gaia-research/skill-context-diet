@@ -1,6 +1,6 @@
 # Context Diet — Methodology (Lab 001)
 
-**Reproducible protocol for compacting an oversized agent-context file without losing rules.**
+**Reproducible protocol for optimizing agent context without losing operational knowledge.**
 
 This document is written so a second run — on a *different* context type (a `.cursorrules`,
 an `AGENTS.md`, a raw system prompt, a different repo's `CLAUDE.md`) — can replay the experiment
@@ -10,14 +10,17 @@ and produce a comparable before/after result. It is the "Methods" section of the
 
 ## 1. Problem statement
 
-An agent-context file has a hard budget. Claude Code warns past **40,000 characters** and may
-**truncate** beyond it, silently disabling whatever rules fell past the cutoff. The naive fix —
-"delete the least important paragraphs" — is unsafe when most of the file is incident-codified
-guardrails (any one of which, dropped, lets an agent ship a CI-breaking state).
+An agent-context file is recurring input — every character is re-read on every turn, so stale or
+redundant text is a tax paid over and over. Some harnesses also impose a hard budget: Claude Code
+warns past **40,000 characters** and may **truncate** beyond it, silently disabling whatever rules
+fell past the cutoff. But the naive fix — "delete the least important paragraphs" — is unsafe when
+most of the file is incident-codified guardrails and operational facts (any one of which, dropped,
+lets an agent ship a CI-breaking state).
 
-**Goal:** get the file under the limit (target = limit − headroom) while provably retaining
-**every rule**. This is a two-objective optimization: **maximize size reduction** subject to
-**faithfulness = 100% of rules recoverable**.
+**Goal:** minimize the recurring inline context while provably retaining **every protected rule**.
+The limit is a safety constraint, not an eligibility gate — a file well under it can still carry
+cost worth cutting. Destructive retirement is proposed in a read-only audit and applied only after
+a later, explicit authorization.
 
 ## 2. Metrics (the five Context Diet / Benchmark 001 signals)
 
@@ -44,32 +47,36 @@ Records total chars, per-`##`-section chars, ranked compaction targets, and Δ t
 Run **N candidate strategies in parallel**, each producing a *proposed* rewrite (never touching
 the live file). Strategies used in Lab 001:
 
-1. **Externalize + link** — move largest playbooks to `docs/agents/*.md`; leave stub =
+1. **No-op** — retain the original; the control prevents needless rewriting.
+2. **Externalize + link** — move largest playbooks to `docs/agents/*.md`; leave stub =
    invariant + pointer. (Repo's existing pattern.)
-2. **Condense in place** — strip retro/anecdote prose, bullet-ify, keep every rule; no new files.
-3. **Telegraphic / caveman** — aggressive lexical compression of non-load-bearing prose to terse
+3. **Condense in place** — strip retro/anecdote prose, bullet-ify, keep every rule; no new files.
+4. **Telegraphic / caveman** — aggressive lexical compression of non-load-bearing prose to terse
    imperatives; preserve all literals. (Tests the faithfulness floor of pure compression.)
-4. **Hybrid route** — externalize top-3, condense mid-size, keep enforced sections verbatim.
+5. **Hybrid route** — externalize the largest, condense mid-size, keep enforced sections inline.
 
-Each strategy honors **hard constraints**: no rule lost; a fixed set of CI-enforced sections stay
-fully inline; exact literals preserved; valid Markdown; under target size.
+Each strategy honors **hard constraints**: no protected item weakened; the file-specific protected
+floor stays inline; exact literals remain exact; Markdown stays valid; supplied limits are met.
 
 ### Phase C — Adversarial faithfulness scoring (the control)
-Independently of compaction, extract a **ground-truth rule inventory** from the original: an
-exhaustive list of atomic, testable directives, each tagged `loadBearing` if CI-enforced or
-incident-codified. Then, per candidate, an **adversarial auditor** (prompted to *find dropped
-rules*, default-to-missing under doubt) classifies every inventory rule as
+Independently of compaction, extract a **ground-truth knowledge inventory**: directives,
+invariants, operational facts, literals, procedures, prohibitions, dated state, and rationale.
+Tag protected items such as CI-enforced, incident-codified, authorization, safety, and explicit
+user-preference context. Then an adversarial auditor classifies every item as
 **present / weakened / missing** against the candidate corpus (its `CLAUDE.md` **plus** any
 linked files — a rule moved to a linked file counts as present).
 
 - **Faithfulness** = present / total.
-- **Disqualification gates:** (a) over the hard char limit, or (b) any load-bearing rule
+- **Disqualification gates:** (a) over a supplied hard limit, or (b) any protected item
   missing/weakened.
 
 ### Phase D — Winner selection
-Among **qualified** candidates: **max faithfulness**, tie-break on **larger reduction**. The
-winner's proposed `CLAUDE.md` + new files are applied to a branch; `context_diet.py` re-run
-confirms `< limit` (the **after** measurement).
+Among **qualified** candidates, report the Pareto frontier across protected retention, inline
+retention, total-corpus retention, retrieval hops, new files, diff complexity, and reduction —
+preferring fewer hops and smaller diffs at equal faithfulness. The `no-op` control wins outright
+when nothing else earns its diff. The initial run saves the estimates and **stops**; a later
+invocation applies the user-authorized tier only after verifying the source hash and creating a
+recoverable checkpoint (the **after** measurement).
 
 ### Phase E — Report + charts
 `make_charts.py` renders three privacy-safe PNGs (size before/after, per-section histogram,
@@ -81,10 +88,8 @@ The protocol is file-agnostic. To replay:
 
 1. **Point Phase A at the new file:** `python3 context_diet.py <NEWFILE> --json`. Adjust
    `--limit` if the target harness differs (Cursor, Windsurf, a raw API system prompt).
-2. **Re-scope the do-not-touch set.** The "keep fully inline" list (Redaction Exemptions, Branch
-   Scope, Class P/S, Authorization, Versioning hard rules — see `SKILL.md` §Constraints) is
-   specific to `gaia-skill-tree`'s CLAUDE.md. For a new file, re-derive it: which sections are
-   CI-enforced or incident-codified? Pass them as the protected set.
+2. **Derive the protected floor.** Identify CI-enforced, incident-codified, safety,
+   authorization, explicit user-preference, and other frequently needed invariants for this file.
 3. **Re-run the bake-off** (`context-diet-bakeoff` workflow / `/context-diet`) — the strategies
    generalize; only the inventory and protected set are file-specific.
 4. **Report against the same five metrics** so runs are comparable across context types.

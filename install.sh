@@ -9,8 +9,17 @@
 
 set -euo pipefail
 
+UPDATE=false
+if [ "${1:-}" = "--update" ]; then
+  UPDATE=true
+elif [ "$#" -gt 0 ]; then
+  printf 'Unknown option: %s\n' "$1" >&2
+  exit 2
+fi
+
 REPO="gaia-research/skill-context-diet"
-RAW="https://raw.githubusercontent.com/${REPO}/main"
+REF="${CONTEXT_DIET_REF:-main}"
+RAW="https://raw.githubusercontent.com/${REPO}/${REF}"
 SKILL_NAME="context-diet"
 
 # ---------------------------------------------------------------------------
@@ -37,8 +46,11 @@ CANDIDATES=()
 [ -d "$HOME/.claude/skills" ]     && CANDIDATES+=("$HOME/.claude/skills")
 [ -d "$HOME/.agents/skills" ]     && CANDIDATES+=("$HOME/.agents/skills")
 
-TARGET_DIR=""
-if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+TARGET_DIR="${CONTEXT_DIET_SKILLS_DIR:-}"
+if [ -n "$TARGET_DIR" ]; then
+  mkdir -p "$TARGET_DIR"
+  info "Using requested skills directory: ${BOLD}${TARGET_DIR}${RESET}"
+elif [ "${#CANDIDATES[@]}" -eq 0 ]; then
   info "No skills directory found. Creating ${BOLD}.agents/skills${RESET} in current dir."
   mkdir -p ".agents/skills"
   TARGET_DIR=".agents/skills"
@@ -70,12 +82,17 @@ INSTALL_DIR="${TARGET_DIR}/${SKILL_NAME}"
 # ---------------------------------------------------------------------------
 if [ -d "$INSTALL_DIR" ]; then
   warn "${BOLD}${INSTALL_DIR}${RESET} already exists."
-  printf "Overwrite? [y/N]: "
-  read -r reply
-  case "$reply" in
-    y|Y|yes|YES) rm -rf "$INSTALL_DIR" ;;
-    *) info "Aborted. No changes made."; exit 0 ;;
-  esac
+  if [ "$UPDATE" = true ]; then
+    info "Updating existing installation."
+    rm -rf "$INSTALL_DIR"
+  else
+    printf "Overwrite? [y/N]: "
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) rm -rf "$INSTALL_DIR" ;;
+      *) info "Aborted. No changes made."; exit 0 ;;
+    esac
+  fi
 fi
 
 mkdir -p "$INSTALL_DIR"
@@ -123,6 +140,6 @@ say ""
 say "  ${DIM}# From an agent conversation:${RESET}"
 say "  ${BOLD}/context-diet CLAUDE.md${RESET}"
 say ""
-say "  ${DIM}# Directly — measure any oversized context file:${RESET}"
+say "  ${DIM}# Directly — measure any context file:${RESET}"
 say "  ${BOLD}python3 ${INSTALL_DIR}/context_diet.py CLAUDE.md${RESET}"
 say ""
