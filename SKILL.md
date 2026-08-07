@@ -2,103 +2,114 @@
 name: context-diet
 description: >-
   Measure and compact an oversized agent-context file (CLAUDE.md, .cursorrules,
-  AGENTS.md, a system prompt) so it fits under the harness char limit WITHOUT
-  losing any rule. Reports per-section size, runs a bake-off of compaction
-  strategies, and scores each on faithfulness (rules retained) before applying
-  the winner. Use when a context file is over the limit or bloated. Triggers:
-  "CLAUDE.md too big", "over the char limit", "context file too large", "compact
-  my agent config", "trim CLAUDE.md", "context diet", "shrink my system prompt",
-  "/context-diet".
-version: 1.0.0
+  AGENTS.md, a system prompt) without losing rules, or safely run reversible
+  one-item-at-a-time ablation when intentional/aggressive context removal is
+  requested. Triggers: "CLAUDE.md too big", "over the char limit", "context file
+  too large", "compact my agent config", "trim CLAUDE.md", "delete context",
+  "rebuild instructions from scratch", "context diet", "/context-diet".
+version: 1.1.0
 ---
 
-# context-diet — Context Compaction Report
+# context-diet
 
-Measure where an agent-context file's character budget goes, section by section,
-then compact it under the limit while provably retaining every rule.
+Measure context size, preserve rules during ordinary compaction, and fail over to checkpointed guided ablation before any intentional rule loss.
 
-## Install
+## Route the request before editing
 
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)
-```
-
-## When to use
-
-- A `CLAUDE.md` / `.cursorrules` / `AGENTS.md` / system prompt is over the harness
-  limit (Claude Code warns past **40,000 chars** and may truncate beyond it).
-- A context file is bloated and you want to know which sections to cut.
-- You want a faithfulness-checked compaction, not a blind delete.
-
-## The two objectives
-
-Compaction is a two-objective problem:
-
-1. **Reduce size** below the limit (target = limit − headroom).
-2. **Retain 100% of rules** — an agent-context file is mostly guardrails; any one
-   dropped silently lets an agent ship a broken state.
-
-`context-diet` optimizes reduction **subject to** faithfulness, never the reverse.
-
-## How it works
-
-### 1. Measure (`context_diet.py`)
+Use normal measurement/bake-off for rule-preserving work:
 
 ```bash
-python3 context_diet.py CLAUDE.md            # human report
-python3 context_diet.py CLAUDE.md --json     # machine-readable baseline
-python3 context_diet.py .cursorrules --limit 40000
+python3 context_diet.py FILE [--limit 40000] [--json]
 ```
 
-Splits on `##` headings, reports per-section chars + approx tokens (chars/4),
-total vs `--limit`, and the ranked compaction targets. **Char count is
-authoritative** — the limit is defined in characters; tiktoken is not required.
+Use guided ablation explicitly for `/context-diet ablate FILE`. Also route automatically, **before modifying the target**, when any of these is true:
 
-### 2. Bake-off (four strategies)
+- the user asks to delete, empty, truncate, disable, replace, or rebuild the context file;
+- a proposal intentionally retires a complete rule/directive/guardrail;
+- a candidate removes multiple inventory units or any protected unit;
+- before a trustworthy inventory exists, a candidate removes at least 20% of source bytes, removes multiple Markdown blocks, or empties the file;
+- a faithfulness audit reports a missing/weakened rule rather than 100% corpus retention.
 
-| Strategy | What it does |
-|---|---|
-| **Externalize + link** | Move large playbooks to linked files; leave stub = invariant + pointer |
-| **Condense in place** | Strip retro/anecdote prose, bullet-ify, keep every rule; no new files |
-| **Telegraphic** | Aggressive lexical compression of non-load-bearing prose; keep all literals |
-| **Hybrid** | Externalize top-N, condense mid-size, keep enforced sections verbatim |
+Run the deterministic check when request text or a candidate is available:
 
-### 3. Faithfulness scoring (the control)
+```bash
+python3 context_diet.py ablate detect FILE --request "USER REQUEST" --json
+python3 context_diet.py ablate detect FILE --candidate CANDIDATE --json
+```
 
-An exhaustive **rule inventory** is extracted from the original (atomic, testable
-directives; each tagged load-bearing if CI-enforced or incident-codified). Each
-candidate is then adversarially audited — every rule classified
-**present / weakened / missing** against the candidate corpus (its file **plus**
-any linked files). **Faithfulness = present / total.**
+These are conservative product guardrails, not scientific safety thresholds. Condensation or externalization that retains 100% of the inventoried corpus does not itself trigger ablation.
 
-**Disqualification:** over the hard limit, or any load-bearing rule lost.
+When escalation occurs, state the exact trigger, do not edit the live file, and read [ABLATION.md](./ABLATION.md) completely before orchestration.
 
-### 4. Winner + apply
+## Normal compaction path
 
-Winner = qualified candidate with **max faithfulness**, tie-break on larger
-reduction. Its rewrite is applied; the analyzer re-run confirms it fits.
+1. Measure the file. Character count is authoritative; tokens are an approximation.
+2. Extract an exhaustive atomic rule inventory and identify CI/incident, authorization, safety, exact-literal, preference, and routing constraints as protected.
+3. Produce review-only candidates for externalize+link, condense, telegraphic, and hybrid strategies.
+4. Adversarially classify every original rule `present`, `weakened`, or `missing` against each complete candidate corpus, including linked files.
+5. Disqualify over-limit candidates and any candidate with a weakened/missing load-bearing rule.
+6. Show the winner and diff. Apply only after user review using the host's normal file-edit flow.
 
-## Constraints (must-keep set)
+Externalization is not deletion: leave an inline invariant and resolvable one-hop link, and include the linked file in faithfulness scoring. Re-derive protected sections for each repository; examples from another repository are not a universal set.
 
-Before compacting, identify the **do-not-touch** sections — CI-enforced or
-incident-codified rules that must stay fully inline. For `gaia-skill-tree`'s
-CLAUDE.md these are: Redaction Exemptions, Branch Scope allowlists,
-Programmatic-First / CLI Pre-Flight, Authorization, Generated Artifacts
-(Class P/S), Versioning hard rules. **Re-derive this set for any other file**
-(§4 of METHODOLOGY.md).
+See [METHODOLOGY.md](./METHODOLOGY.md) and the frozen [WORKFLOW.md](./WORKFLOW.md) Lab 001 artifact.
 
-## Reproducibility
+## Guided ablation path
 
-See [METHODOLOGY.md](./METHODOLOGY.md) for the full paper-style protocol and how
-to replay the experiment on a different context type. The inventory + scoring are
-the reproducible control; candidate wording varies, but which rules must survive
-does not.
+The Python controller, not model prose, owns mutation and offsets:
 
-## Notes
+```bash
+# 1. Exact original checkpoint + local inventory
+python3 context_diet.py ablate init FILE \
+  --designer-model provider/capable-model \
+  --models provider/model-a provider/model-b --repetitions 3
 
-- Externalization ≠ deletion: a rule moved to a linked file is still one hop away.
-  The report separates in-context size from total-corpus size so the trade-off is
-  explicit.
-- LLM compaction is stochastic. For a strict replay, cache the winning candidate
-  corpus and re-score it; report faithfulness (stable) + achieved reduction
-  (run-specific).
+# 2. Seal a user-approved manifest after provider/cost/privacy disclosure
+python3 context_diet.py ablate onboard FILE --manifest MANIFEST.json
+
+# 3. Import fresh-context baselines for every exact configured model
+python3 context_diet.py ablate record-evidence FILE --evidence BASELINE.json
+
+# 4. Prepare one locally derived deletion; live FILE is unchanged
+python3 context_diet.py ablate stage FILE --unit CD-0012 --json
+
+# 5. Import paired parent/candidate results one cell or bundle at a time
+python3 context_diet.py ablate record-evidence FILE --evidence TRIAL.json
+
+# 6. Explicit decision; only accept mutates FILE
+python3 context_diet.py ablate accept FILE T0001 --candidate-sha SHA256
+python3 context_diet.py ablate reject FILE T0001
+
+# 7. Resume/recover/restore
+python3 context_diet.py ablate status FILE --json
+python3 context_diet.py ablate reconcile FILE
+python3 context_diet.py ablate rollback FILE R0000
+```
+
+### Onboarding requirements
+
+Present one compact review card containing target/checkpoint hash, exact capable designer/judge model, exact tested model routes, proposed protected units and 3–7 repository-specific cases, repetitions/expected call count, and provider/local-artifact disclosure. Names such as “Opus”, “Sol”, or “Sonnet” are display labels only; never infer or substitute an exact route.
+
+Have the capable model propose an over-complete manifest from the immutable original and controller inventory, then perform an independent adversarial coverage pass. User approval must be bound to the source and manifest content. The controller will not allow auto-protected units to be unprotected.
+
+### Evaluation requirements
+
+Use fresh isolated contexts. When supported, use bundled `ablation.workflow.js` with snapshot content and sealed cases; never ask subject models to inspect or edit the live target. The workflow selects each exact model explicitly, preserves null/unavailable coverage, bounds concurrency, and uses the disclosed capable model as semantic judge. If exact routing/workflows are unavailable, allow status/artifact inspection but mark the cell `inconclusive` and block acceptance—never fall back to the current session model.
+
+Test one unit only. Cleanup, reference repair, and another deletion are later trials. The next candidate compares against the latest accepted checkpoint; accepted trial evidence is promoted as that checkpoint's baseline.
+
+### Guidance language
+
+Report per exact model only `no_regression_observed`, `regression_observed`, or `inconclusive`. Include exact model and judge IDs, suite/parent/candidate hashes, repetitions, pass counts, failed cases, and missing coverage.
+
+Say “No regression was observed in N paired runs; this exact model may tolerate this omission under this sealed suite.” Never claim a rule is universally safe, infer model capability/rank, or generalize to another version, family label, repository, harness, or production context. Any required-model regression, baseline failure, timeout, route unavailability, missing case, or uncertain judgment blocks acceptance.
+
+### Authorization boundary
+
+The original request, onboarding approval, successful tests, or a model recommendation is **not** file-write authorization. Acceptance requires the user to identify the trial and exact candidate SHA. There is no force/override flag.
+
+`test`/`stage`/`reject` never modify the target. Accept and rollback verify live/artifact hashes, create fresh pre-write snapshots, journal intent, atomically replace, verify, and restore on failure. Unrelated drift, corruption, unsafe symlinks, and ambiguous interrupted transactions fail closed. Never use `git reset` or `git checkout` for rollback.
+
+## Invocation spelling
+
+Hosts may expose `/context-diet`. Pi's native spelling is `/skill:context-diet`; map either spelling to the same flow. A plain invocation measures normally unless a persisted session for the target is active, in which case show `ablate status` and offer to resume it first.

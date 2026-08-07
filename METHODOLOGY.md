@@ -106,3 +106,54 @@ metric and size reduction as the achieved (run-specific) figure.
 - **Externalization ≠ deletion.** Moving detail to a linked file reduces the *in-context* size but
   the rule is still one hop away. Faithfulness counts it present; the report notes in-context vs
   total-corpus size separately so the trade-off is explicit.
+
+## 6. Guided ablation protocol (intentional rule loss)
+
+Ablation answers a different question from faithful compaction: whether a sealed behavioral suite
+observes a regression when one exact context block is omitted for one exact configured model.
+Ablation results **do not** satisfy the original 100%-faithfulness objective and never prove a rule
+unnecessary.
+
+1. **Checkpoint before model work.** Record exact original bytes, SHA-256, path, and POSIX mode in
+   private state outside Git.
+2. **Inventory locally.** Derive stable non-overlapping Markdown-block spans. Protect structural,
+   safety/authorization, CI/incident, exact-literal, preference, and bootstrap/routing blocks by
+   default. Models may add protection but do not supply edit offsets.
+3. **Seal onboarding once.** A disclosed capable model proposes an over-complete inventory review
+   and 3–7 non-leading repository-specific cases with hidden rubrics. An independent coverage pass
+   and user approval bind the protected set/suite to exact source, model, and suite hashes.
+4. **Baseline exact routes.** Run every required subject model in fresh isolated contexts for the
+   configured repetition count. Missing routes, failed calls, uncertain judgments, and critical
+   baseline failures are inconclusive and block experimentation.
+5. **Change one independent variable.** Construct a deletion-only candidate from one controller
+   span against the current accepted checkpoint. Do not combine cleanup, reference repair, or a
+   second omission in that trial.
+6. **Run paired evaluations.** Give parent and candidate variants identical task prompts, keep
+   rubrics hidden from the subject, and score deterministic checks directly or qualitative outputs
+   with the disclosed capable judge. Preserve failed/null cells.
+7. **Gate and report.** Report `no_regression_observed`, `regression_observed`, or `inconclusive`
+   per exact model with model/judge IDs, source/suite/candidate hashes, repetition/pass counts, and
+   failed cases. Any required regression or incomplete cell blocks acceptance.
+8. **Apply transactionally.** A successful test is not authorization. Require explicit trial and
+   candidate-hash approval, verify the live head, take another snapshot, journal intent, atomically
+   replace, and verify. Promote accepted candidate evidence as the next checkpoint baseline.
+9. **Retain rollback history.** Rollback also snapshots first and creates a new revision, so the
+   restoration can itself be reversed. Never overwrite unrelated drift.
+
+See [ABLATION.md](./ABLATION.md) for the controller commands and evidence schema.
+
+### Additional ablation threats to validity
+
+- **Finite-suite blindness.** Uninventoried implicit behaviors and interactions can regress despite
+  a passing suite. Over-complete onboarding and serial trials reduce, but cannot remove, this risk.
+- **Simulation fidelity.** Prompt simulations may differ from production context injection, global
+  instructions, tools, routing, and session memory. Record the injection method and make only
+  experiment-scoped claims.
+- **Stochasticity and judge bias.** Repetition shows consistency, not truth. A capable judge may
+  share subject-model biases; deterministic checks should take precedence when available.
+- **Provider/model drift.** Results bind to an exact configured identifier and hashes, but providers
+  may change behavior behind an identifier. Do not extrapolate to labels, families, or newer models.
+- **Cumulative interaction.** Comparing each omission with the latest accepted checkpoint isolates
+  the immediate delta but does not prove omitted rules are independent.
+- **Filesystem metadata.** Atomic replacement preserves exact content and POSIX mode; it may not
+  preserve ACLs, xattrs, hardlinks, or platform-specific metadata.

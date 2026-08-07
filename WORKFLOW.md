@@ -29,4 +29,32 @@ See [METHODOLOGY.md](./METHODOLOGY.md) §4 for the full reproduction protocol an
 to validity. The workflow is stochastic in candidate *wording* but deterministic in *which rules
 must survive* — cache the winning corpus and re-score it for a strict replay.
 
-> The canonical script is committed alongside this note as `bakeoff.workflow.js`.
+> The canonical script is committed alongside this note as `bakeoff.workflow.js` and remains
+> unchanged as the Lab 001 provenance artifact.
+
+## Guided-ablation evaluator
+
+`ablation.workflow.js` is a separate product workflow. Unlike the hard-coded Lab 001 bake-off, it
+accepts bounded snapshot content, a sealed suite/hash, one parent/candidate pair, 1–5 exact subject
+model IDs, one exact designer/judge ID, and 1–5 repetitions.
+
+For each stable model/repetition work ID it:
+
+1. explicitly routes a fresh parent simulation to the requested exact subject model;
+2. for trials, routes the one-unit candidate through the same task prompts;
+3. keeps sealed rubrics out of subject prompts;
+4. asks the exact disclosed judge model to classify each response `pass`, `fail`, or
+   `inconclusive`;
+5. preserves unavailable routes, null calls, missing cases, and judge failures as missing coverage;
+6. returns baseline/trial evidence bound to suite, parent, candidate, trial, model, judge, and
+   repetition values for `context_diet.py ablate record-evidence`.
+
+Every `agent()` call has a stable label. Work is batched at concurrency two, and user inputs are
+bounded to at most five models, five repetitions, and ten cases. Explicit route failures are caught
+and reported; there is no fallback to the session model.
+
+The workflow sends snapshot and evaluation content to the selected providers. Obtain disclosure
+consent and show expected call volume before invocation. It is a controlled prompt simulation, not
+a faithful reproduction of every host's production context-loading order or tools. Its output
+supports only experiment-scoped wording such as “no regression observed for this exact route and
+sealed suite.” See [ABLATION.md](./ABLATION.md).
