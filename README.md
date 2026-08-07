@@ -2,6 +2,8 @@
 
 **Your `CLAUDE.md` is over the limit. Which rules is the harness about to silently drop?**
 
+Claude Code may truncate CLAUDE.md past 40,000 chars. Boss, run /context-diet CLAUDE.md first—compact rules, then make bounded context ablation face evidence.
+
 <img width="1672" height="941" alt="Generated image 3" src="https://github.com/user-attachments/assets/6b2c2aa7-7294-4e53-81bf-72cfd1cd8817" />
 
 Claude Code warns past **40,000 characters** and may truncate beyond it — quietly disabling
@@ -142,6 +144,15 @@ Pi invokes the installed skill as `/skill:context-diet`; hosts may provide the s
 
 ---
 
+### Boundary/source table
+| Layer | Documented boundary |
+|---|---|
+| Local tool | Analyzes context files; the controller owns snapshots, validation, evidence gates, atomic apply, and rollback. See [ABLATION.md](./ABLATION.md). |
+| Host | Supplies exact model routing and model-aware evidence; unavailable routes remain inconclusive and block acceptance. See [SKILL.md](./SKILL.md) and [WORKFLOW.md](./WORKFLOW.md). |
+| Scope | The repository documents file invocation plus host-supplied routing/evidence; additional integrations are outside this documented scope. |
+
+---
+
 ## Reproducible methodology
 
 This tool is the packaged output of **Context Diet — Lab 001** (a Gaia Research benchmark). The
@@ -165,18 +176,23 @@ run to run, but *which rules must survive* does not.
 
 | Question | Answer |
 |---|---|
-| **What's the 40,000-character limit?** | Claude Code warns past 40k chars in `CLAUDE.md` and may silently truncate beyond it. Same risk applies to any agent-context file (`.cursorrules`, `AGENTS.md`, system prompts). |
-| **What counts as "a rule"?** | Any imperative or guardrail — MUST/SHOULD statements, forbidden patterns, ordered procedures, literal command strings. `context-diet` extracts these into an inventory before compacting. |
-| **How does it know a rule survived?** | It re-scans the compacted file (and any linked files) for each rule in the inventory and classifies it as **present**, **weakened**, or **missing**. A candidate that drops any load-bearing rule is disqualified. |
-| **Won't externalization just move the problem?** | The report separates **in-context size** from **total-corpus size**, so the trade-off is explicit. Externalized rules still count as present because the agent can follow the link. |
-| **Does it edit my `CLAUDE.md` in place?** | Measurement and ordinary candidates are review-only. Guided ablation writes only after passing locked evidence and explicit trial+candidate-hash acceptance; it checkpoints first and supports exact rollback. |
-| **Which compaction strategy should I use?** | Let the bake-off pick. It runs all four (externalize, condense, telegraphic, hybrid) and returns the highest-faithfulness candidate under the limit. |
-| **Can I use it on non-Claude files?** | Yes. It's a plain text analyzer — works on `.cursorrules`, `AGENTS.md`, raw system prompts, or any Markdown file. Pass `--limit` for your target budget. |
-| **Does it need an API key?** | No for measurement/state/rollback/archive. Compaction and model-aware ablation evidence use the models already configured in the host; missing exact routes stay inconclusive. |
-| **Can it test several removals together?** | Yes, if `init --concurrency N` opts into a bounded batch. One is the default and gives the cleanest attribution. A batch is still one candidate, one evidence gate, and one atomic accept/rollback. |
-| **When did I last ablate, and how much is gone?** | `ablate status FILE --json` reports `lastAblationAt`, `lastActivityAt`, and `baselineComparison`, including the percent removed from the original baseline and the relevant timestamps. |
-| **How do I install it?** | `bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)` — auto-detects your skills dir. |
-| **What's the methodology?** | See [METHODOLOGY.md](./METHODOLOGY.md) — full metrics, procedure, replay protocol, and threats to validity. |
+| **What's the 40,000-character limit?** | Claude Code warns past 40k chars in `CLAUDE.md` and may truncate beyond it; the risk applies to other agent-context files too. |
+| **What counts as "a rule"?** | Imperatives, guardrails, forbidden patterns, ordered procedures, and literal commands are inventoried before compaction. |
+| **How does it know a rule survived?** | It rescans the compacted file and linked files, classifying each inventoried rule present, weakened, or missing. |
+| **Won't externalization just move the problem?** | Reports separate in-context size from total-corpus size; linked rules remain available to the agent. |
+| **Which compaction strategy should I use?** | The bake-off compares externalize, condense, telegraphic, and hybrid, then returns the highest-faithfulness candidate under the limit. |
+| **Can I use it on non-Claude files?** | Yes: `.cursorrules`, `AGENTS.md`, raw system prompts, or Markdown files; pass `--limit` for your budget. |
+| **Does it need an API key?** | No for measurement, state, rollback, or archive; compaction and model-aware evidence use models configured by the host. |
+| **Can it test several removals together?** | Yes, with `init --concurrency N`: one bounded candidate, one evidence gate, and one atomic accept/rollback. |
+| **When did I last ablate, and how much is gone?** | `ablate status FILE --json` reports last activity, last ablation, baseline comparison, percentage removed, and timestamps. |
+| **How do I install it?** | Run `bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)`. |
+| **What's the methodology?** | See [METHODOLOGY.md](./METHODOLOGY.md) for metrics, procedure, replay protocol, and threats to validity. |
+| **What is context ablation?** | Intentional, bounded omission tested through evidence gates—not ordinary rule-preserving compaction. Choose an omission; test it within scope. |
+| **How do I reduce CLAUDE.md without changing rules?** | Inventory rules, run the compaction bake-off, and accept only a candidate preserving every inventoried rule. Keep the guardrails sharp. |
+| **How do I reduce AI-agent context bloat?** | Measure `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, or a raw system prompt, then compact under your character limit. No fuss. |
+| **How do I undo accepted guided ablation?** | Run `python3 context_diet.py ablate rollback CLAUDE.md R0000` in a guided-ablation session to restore the selected revision. |
+| **Does context-diet edit files in place?** | Measurement and ordinary compaction are review-only; guided ablation applies only after evidence and exact candidate-SHA acceptance. |
+| **Does evidence prove a rule is safe to remove?** | No. Evidence covers only the exact route, checkpoint, sealed suite, and candidate SHA—not universal safety. Keep your guardrails sharp. |
 
 ---
 
