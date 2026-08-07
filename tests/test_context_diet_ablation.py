@@ -32,8 +32,8 @@ class AblationLifecycleTests(unittest.TestCase):
         else:
             os.environ["CONTEXT_DIET_STATE_DIR"] = self.old_state
 
-    def init(self):
-        return ab.init_session(self.target, MODELS, DESIGNER, 2, ["whole_file_removal"])
+    def init(self, concurrency=1):
+        return ab.init_session(self.target, MODELS, DESIGNER, 2, ["whole_file_removal"], concurrency)
 
     def state(self):
         return json.loads((ab.session_dir(self.target.resolve()) / "state.json").read_text(encoding="utf-8"))
@@ -42,8 +42,8 @@ class AblationLifecycleTests(unittest.TestCase):
         root = ab.session_dir(self.target.resolve())
         return json.loads((root / "inventory.json").read_text(encoding="utf-8"))
 
-    def onboard(self):
-        summary = self.init()
+    def onboard(self, concurrency=1):
+        summary = self.init(concurrency)
         inventory = self.inventory()
         removable = [unit["id"] for unit in inventory["units"] if not unit["protected"]]
         manifest = {
@@ -125,6 +125,28 @@ class AblationLifecycleTests(unittest.TestCase):
         self.assertIn("candidate_removes_multiple_units", assessed["reasons"])
         self.assertIn("candidate_removes_protected_context", assessed["reasons"])
 
+    def test_preflight_suggests_only_from_explicit_check_and_declared_high_tier(self):
+        result = ab.preflight("", SOURCE, None, ["provider/frontier-model=big", "provider/fast-model=small"])
+        self.assertTrue(result["invocationScoped"])
+        self.assertTrue(result["suggestionOnly"])
+        self.assertTrue(result["suggestAblation"])
+        self.assertEqual(["provider/frontier-model"],
+                         [item["modelId"] for item in result["availableHighTierModels"]])
+        self.assertFalse(ab.preflight("", SOURCE, None, ["provider/fast-model=small"])["suggestAblation"])
+        self.assertFalse(ab.session_dir(self.target.resolve()).exists())
+
+    def test_configurable_concurrency_stages_bounded_exact_batch(self):
+        removable = self.onboard(concurrency=2)
+        self.baseline()
+        self.assertGreaterEqual(len(removable), 3)
+        staged = ab.stage_trial(self.target, removable[:2])
+        self.assertEqual(staged["concurrency"], 2)
+        self.assertEqual(staged["trial"]["unitIds"], removable[:2])
+        self.assertEqual(self.target.read_bytes(), SOURCE)
+        ab.reject_trial(self.target, staged["activeTrial"])
+        with self.assertRaises(ab.AblationError):
+            ab.stage_trial(self.target, removable[:3])
+
     def test_onboarding_and_every_model_baseline_gate_staging(self):
         removable = self.onboard()
         ab.record_evidence(self.target, self.evidence("baseline", MODELS[0]))
@@ -205,6 +227,11 @@ class AblationLifecycleTests(unittest.TestCase):
             ab.accept_trial(self.target, trial_id, "0" * 64)
         accepted = ab.accept_trial(self.target, trial_id, candidate_sha)
         candidate = self.target.read_bytes()
+        self.assertIsNotNone(accepted["lastAblationAt"])
+        comparison = accepted["baselineComparison"]
+        self.assertEqual(comparison["baselineBytes"], len(SOURCE))
+        self.assertEqual(comparison["currentBytes"], len(candidate))
+        self.assertGreater(comparison["removedPercentFromBaseline"], 0)
         self.assertEqual(ab.sha256_bytes(candidate), candidate_sha)
         self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o640)
         self.assertEqual(accepted["status"], "ready")
@@ -291,6 +318,18 @@ class AblationLifecycleTests(unittest.TestCase):
             with self.assertRaises(ab.AblationError):
                 with ab.SessionLock(root):
                     pass
+
+    def test_archive_is_manual_private_and_refuses_overwrite(self):
+        self.init()
+        output = self.base / "archives" / "session.tar.gz"
+        result = ab.archive_session(self.target, output)
+        self.assertTrue(result["archived"])
+        self.assertFalse(result["automatic"])
+        self.assertEqual(result["archiveSha256"], ab.sha256_bytes(output.read_bytes()))
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+        with self.assertRaises(ab.AblationError):
+            ab.archive_session(self.target, output)
 
     def test_workflow_and_installer_contracts(self):
         workflow = (ROOT / "ablation.workflow.js").read_text(encoding="utf-8")

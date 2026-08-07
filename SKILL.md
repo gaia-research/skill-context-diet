@@ -3,11 +3,11 @@ name: context-diet
 description: >-
   Measure and compact an oversized agent-context file (CLAUDE.md, .cursorrules,
   AGENTS.md, a system prompt) without losing rules, or safely run reversible
-  one-item-at-a-time ablation when intentional/aggressive context removal is
+  bounded, reversible ablation when intentional/aggressive context removal is
   requested. Triggers: "CLAUDE.md too big", "over the char limit", "context file
   too large", "compact my agent config", "trim CLAUDE.md", "delete context",
   "rebuild instructions from scratch", "context diet", "/context-diet".
-version: 1.1.0
+version: 1.2.0
 ---
 
 # context-diet
@@ -22,7 +22,16 @@ Use normal measurement/bake-off for rule-preserving work:
 python3 context_diet.py FILE [--limit 40000] [--json]
 ```
 
-Use guided ablation explicitly for `/context-diet ablate FILE`. Also route automatically, **before modifying the target**, when any of these is true:
+Use guided ablation explicitly for `/context-diet ablate FILE`. On an explicit `/context-diet` invocation, a host may first run suggestion-only pre-flight with exact route/tier facts it already knows:
+
+```bash
+python3 context_diet.py ablate preflight FILE \
+  --model-route provider/frontier-model=big --json
+```
+
+A declared high-tier route may justify proactively offering ablation, but pre-flight must not run outside a user invocation, infer tiers from display names, create a session, or edit the target. Host-specific discovery adapters are follow-up work.
+
+Also route automatically, **before modifying the target**, when any of these is true:
 
 - the user asks to delete, empty, truncate, disable, replace, or rebuild the context file;
 - a proposal intentionally retires a complete rule/directive/guardrail;
@@ -62,7 +71,8 @@ The Python controller, not model prose, owns mutation and offsets:
 # 1. Exact original checkpoint + local inventory
 python3 context_diet.py ablate init FILE \
   --designer-model provider/capable-model \
-  --models provider/model-a provider/model-b --repetitions 3
+  --models provider/model-a provider/model-b --repetitions 3 \
+  --concurrency 1
 
 # 2. Seal a user-approved manifest after provider/cost/privacy disclosure
 python3 context_diet.py ablate onboard FILE --manifest MANIFEST.json
@@ -70,8 +80,10 @@ python3 context_diet.py ablate onboard FILE --manifest MANIFEST.json
 # 3. Import fresh-context baselines for every exact configured model
 python3 context_diet.py ablate record-evidence FILE --evidence BASELINE.json
 
-# 4. Prepare one locally derived deletion; live FILE is unchanged
+# 4. Prepare one locally derived deletion by default; live FILE is unchanged
 python3 context_diet.py ablate stage FILE --unit CD-0012 --json
+# With an explicitly higher session concurrency, repeated units form one batch candidate
+python3 context_diet.py ablate stage FILE --unit CD-0012 --unit CD-0017 --json
 
 # 5. Import paired parent/candidate results one cell or bundle at a time
 python3 context_diet.py ablate record-evidence FILE --evidence TRIAL.json
@@ -84,6 +96,8 @@ python3 context_diet.py ablate reject FILE T0001
 python3 context_diet.py ablate status FILE --json
 python3 context_diet.py ablate reconcile FILE
 python3 context_diet.py ablate rollback FILE R0000
+# Manual only; may contain the complete private context
+python3 context_diet.py ablate archive FILE --output session.tar.gz --json
 ```
 
 ### Onboarding requirements
@@ -96,7 +110,7 @@ Have the capable model propose an over-complete manifest from the immutable orig
 
 Use fresh isolated contexts. When supported, use bundled `ablation.workflow.js` with snapshot content and sealed cases; never ask subject models to inspect or edit the live target. The workflow selects each exact model explicitly, preserves null/unavailable coverage, bounds concurrency, and uses the disclosed capable model as semantic judge. If exact routing/workflows are unavailable, allow status/artifact inspection but mark the cell `inconclusive` and block acceptance—never fall back to the current session model.
 
-Test one unit only. Cleanup, reference repair, and another deletion are later trials. The next candidate compares against the latest accepted checkpoint; accepted trial evidence is promoted as that checkpoint's baseline.
+Default to one unit for clean attribution. Advanced users may set immutable session concurrency from 1–10 and repeat `--unit` to test that bounded batch as one candidate. This does not permit simultaneous writes: the whole batch shares one evidence gate and atomic decision. Explain that higher concurrency weakens attribution. The next candidate compares against the latest accepted checkpoint; accepted trial evidence is promoted as that checkpoint's baseline.
 
 ### Guidance language
 
@@ -109,6 +123,8 @@ Say “No regression was observed in N paired runs; this exact model may tolerat
 The original request, onboarding approval, successful tests, or a model recommendation is **not** file-write authorization. Acceptance requires the user to identify the trial and exact candidate SHA. There is no force/override flag.
 
 `test`/`stage`/`reject` never modify the target. Accept and rollback verify live/artifact hashes, create fresh pre-write snapshots, journal intent, atomically replace, verify, and restore on failure. Unrelated drift, corruption, unsafe symlinks, and ambiguous interrupted transactions fail closed. Never use `git reset` or `git checkout` for rollback.
+
+`status --json` must surface `lastAblationAt`, `lastActivityAt`, and the original-baseline byte percentage with baseline/current/measurement timestamps. `archive` is always an explicit user action; never schedule archives, uploads, retention, or deletion.
 
 ## Invocation spelling
 

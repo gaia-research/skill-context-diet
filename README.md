@@ -93,20 +93,29 @@ The `--json` baseline feeds the bake-off workflow and the chart generator.
 
 ### Intentional context removal: guided ablation
 
-Normal compaction retains every rule. Requests to delete/rebuild context, omit protected rules, remove multiple inventoried blocks, or make an unaudited reduction of at least 20% are routed to a separate fail-closed mode:
+Normal compaction retains every rule. Requests to delete/rebuild context, omit protected rules, remove multiple inventoried blocks, or make an unaudited reduction of at least 20% are routed to a separate fail-closed mode. On an explicit `/context-diet` invocation, pre-flight can also notice host-declared high-tier routes and offer ablation before the user asks for a destructive edit—it suggests; it never starts a session or edits a file:
 
 ```bash
+# Invocation-scoped suggestion using tier facts supplied by the host
+python3 context_diet.py ablate preflight CLAUDE.md \
+  --model-route provider/frontier-model=big --json
+
 # Original backup + deterministic block inventory (no target edit)
 python3 context_diet.py ablate init CLAUDE.md \
   --designer-model provider/capable-model \
-  --models provider/model-a provider/model-b --repetitions 3
+  --models provider/model-a provider/model-b --repetitions 3 \
+  --concurrency 1
 
 # After reviewing/approving the onboarding manifest and baseline evidence
 python3 context_diet.py ablate onboard CLAUDE.md --manifest manifest.json
 python3 context_diet.py ablate record-evidence CLAUDE.md --evidence baseline.json
 
-# One deletion candidate at a time; still no target edit
+# One deletion candidate at a time by default; still no target edit
 python3 context_diet.py ablate stage CLAUDE.md --unit CD-0012 --json
+
+# Advanced: with a higher init concurrency, test a bounded batch together
+python3 context_diet.py ablate stage CLAUDE.md \
+  --unit CD-0012 --unit CD-0017 --json
 python3 context_diet.py ablate record-evidence CLAUDE.md --evidence trial.json
 
 # The only candidate-apply path requires trial + exact hash authorization
@@ -114,9 +123,20 @@ python3 context_diet.py ablate accept CLAUDE.md T0001 --candidate-sha <sha256>
 python3 context_diet.py ablate rollback CLAUDE.md R0000
 ```
 
-State and exact snapshots live outside Git by default under `$CONTEXT_DIET_STATE_DIR`, `$XDG_STATE_HOME/context-diet`, or `~/.local/state/context-diet`. Progress resumes across sessions. The original is checkpointed before model work; staging/testing/rejection are read-only; apply and rollback are hash-checked, journaled, atomic, and reversible.
+State and exact snapshots live outside Git by default under `$CONTEXT_DIET_STATE_DIR`, `$XDG_STATE_HOME/context-diet`, or `~/.local/state/context-diet`. Progress resumes across sessions. `status` reports the last accepted ablation, last session activity, and the byte percentage removed from the original baseline, with baseline/current/measurement timestamps so the comparison has a specific time frame.
 
-The bundled `ablation.workflow.js` can run bounded exact-model simulations in hosts with dynamic workflow/model routing. Unavailable routes remain inconclusive and never fall back. Results are scoped as “no regression observed for this exact model and sealed suite,” never as proof that a rule or model family is universally safe. See [ABLATION.md](./ABLATION.md) for onboarding/evidence schemas, privacy disclosure, recovery, and limitations.
+Concurrency means **units combined into one candidate trial**, not simultaneous writes. It defaults to one and is fixed for the session. Raising it trades causal attribution for speed; the same protected-unit, evidence, explicit-acceptance, and rollback gates apply to the whole batch.
+
+The original is checkpointed before model work; staging/testing/rejection are read-only; apply and rollback are hash-checked, journaled, atomic, and reversible. Archives are manual and may contain the full private context:
+
+```bash
+python3 context_diet.py ablate archive CLAUDE.md \
+  --output "$HOME/context-diet-archives/claude-ablation.tar.gz" --json
+```
+
+Nothing auto-archives, rotates, uploads, or deletes session state.
+
+The bundled `ablation.workflow.js` can run bounded exact-model simulations in hosts with dynamic workflow/model routing. Unavailable routes remain inconclusive and never fall back. Results are scoped as “no regression observed for this exact model and sealed suite,” never as proof that a rule or model family is universally safe. Host-specific adapters are intentionally follow-up work; until then, hosts must declare exact routes and tiers rather than making the controller guess from labels such as Opus, Sol, or Sonnet. The controller stays consolidated while the safety state machine is host-neutral; split adapter integration into separate modules when those adapters arrive. See [ABLATION.md](./ABLATION.md) for onboarding/evidence schemas, privacy disclosure, recovery, and limitations.
 
 Pi invokes the installed skill as `/skill:context-diet`; hosts may provide the shorter `/context-diet` alias.
 
@@ -152,7 +172,9 @@ run to run, but *which rules must survive* does not.
 | **Does it edit my `CLAUDE.md` in place?** | Measurement and ordinary candidates are review-only. Guided ablation writes only after passing locked evidence and explicit trial+candidate-hash acceptance; it checkpoints first and supports exact rollback. |
 | **Which compaction strategy should I use?** | Let the bake-off pick. It runs all four (externalize, condense, telegraphic, hybrid) and returns the highest-faithfulness candidate under the limit. |
 | **Can I use it on non-Claude files?** | Yes. It's a plain text analyzer — works on `.cursorrules`, `AGENTS.md`, raw system prompts, or any Markdown file. Pass `--limit` for your target budget. |
-| **Does it need an API key?** | No for measurement/state/rollback. Compaction and model-aware ablation evidence use the models already configured in the host; missing exact routes stay inconclusive. |
+| **Does it need an API key?** | No for measurement/state/rollback/archive. Compaction and model-aware ablation evidence use the models already configured in the host; missing exact routes stay inconclusive. |
+| **Can it test several removals together?** | Yes, if `init --concurrency N` opts into a bounded batch. One is the default and gives the cleanest attribution. A batch is still one candidate, one evidence gate, and one atomic accept/rollback. |
+| **When did I last ablate, and how much is gone?** | `ablate status FILE --json` reports `lastAblationAt`, `lastActivityAt`, and `baselineComparison`, including the percent removed from the original baseline and the relevant timestamps. |
 | **How do I install it?** | `bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)` — auto-detects your skills dir. |
 | **What's the methodology?** | See [METHODOLOGY.md](./METHODOLOGY.md) — full metrics, procedure, replay protocol, and threats to validity. |
 

@@ -11,7 +11,7 @@ The controller:
 - checkpoints the exact original bytes before onboarding or model work;
 - derives deletion spans locally from UTF-8 Markdown blocks and identifies them as `CD-0001`, `CD-0002`, and so on;
 - protects headings and blocks that look like authorization/safety, CI/incident, exact-literal, bootstrap/routing, credential, or user-preference context;
-- stages exactly one controller-derived span and rejects empty-file removal;
+- stages one controller-derived span by default, or a user-configured bounded batch, and rejects empty-file removal;
 - keeps the live target unchanged during onboarding, baselining, staging, testing, and rejection;
 - requires all configured exact models to have passing evidence for the current checkpoint;
 - requires `accept TRIAL --candidate-sha SHA`, so the original destructive request is not authorization;
@@ -41,13 +41,19 @@ An interrupted `applying` or `rolling_back` transaction is reconciled only when 
 python3 context_diet.py ablate detect CLAUDE.md \
   --request "remove it and rebuild from scratch" --json
 
+# Run only as part of an explicit user invocation. Tier facts come from the host.
+python3 context_diet.py ablate preflight CLAUDE.md \
+  --model-route provider/frontier-model=big --json
+
 python3 context_diet.py ablate init CLAUDE.md \
   --designer-model provider/capable-model \
   --models provider/model-a provider/model-b \
-  --repetitions 3 --trigger whole_file_removal
+  --repetitions 3 --concurrency 1 --trigger whole_file_removal
 ```
 
-`init` is idempotent for an existing target session. It prints the private state directory and generated `inventory.json`. Exact identifiers are required; labels such as “Opus”, “Sol”, and “Sonnet” are not identifiers and are never silently mapped.
+`preflight` is suggestion-only: it neither creates state nor edits the target. Run it only after the user invokes Context Diet. A declared `big`, `high`, `frontier`, or `premium` route may prompt an offer to use ablation, but the user must still confirm initialization. Host-specific route-discovery adapters will follow; the controller does not guess tiers from labels.
+
+`init` is idempotent for an existing target session. It prints the private state directory and generated `inventory.json`. Exact identifiers are required; labels such as “Opus”, “Sol”, and “Sonnet” are not identifiers and are never silently mapped. `--concurrency` is immutable for that session, defaults to one, and is bounded from 1–10.
 
 Before invoking providers, disclose:
 
@@ -117,15 +123,22 @@ A baseline evidence object contains:
 
 Unavailable routes, null calls, timeouts, missing cases, baseline failures, and uncertain judgments must be represented as `inconclusive` or omitted coverage. They do not fall back and do not pass the gate.
 
-### 4. Stage exactly one omission
+### 4. Stage a bounded omission
 
-Review `inventory.json`, select one unprotected unit, and stage it:
+Review `inventory.json`, select an unprotected unit, and stage it:
 
 ```bash
 python3 context_diet.py ablate stage CLAUDE.md --unit CD-0012 --json
 ```
 
-The response identifies `T0001`, the parent and candidate hashes, private `candidate.bin`, and `candidate.patch`. The target is unchanged. Cleanup, reference repair, or a second deletion must be a later trial so causal attribution stays narrow.
+The response identifies `T0001`, the parent and candidate hashes, private `candidate.bin`, and `candidate.patch`. The target is unchanged. With a session concurrency above one, repeat `--unit` to combine that many units into the same candidate:
+
+```bash
+python3 context_diet.py ablate stage CLAUDE.md \
+  --unit CD-0012 --unit CD-0017 --json
+```
+
+This is candidate batch width, not simultaneous mutation. The batch receives one paired evaluation and one atomic decision. Higher concurrency is faster but weakens causal attribution and can hide interactions; one remains the recommended default.
 
 ### 5. Run paired tests and import evidence
 
@@ -175,7 +188,13 @@ python3 context_diet.py ablate list
 python3 context_diet.py ablate rollback CLAUDE.md R0000
 python3 context_diet.py ablate rollback CLAUDE.md       # restore previous revision (undo/redo)
 python3 context_diet.py ablate reconcile CLAUDE.md
+python3 context_diet.py ablate archive CLAUDE.md \
+  --output "$HOME/context-diet-archives/claude-ablation.tar.gz" --json
 ```
+
+`status --json` includes `lastAblationAt`, `lastActivityAt`, and a `baselineComparison` object. The latter binds the byte delta and `removedPercentFromBaseline` to the original baseline timestamp, current revision timestamp, and measurement timestamp.
+
+Archive creation is explicit and local. It validates the session, refuses overwrite and in-session destinations, writes a mode-`0600` tarball where supported, and reports its SHA-256. Archives can contain complete context, prompts, snapshots, and evidence. There is no automatic archive, rotation, upload, deletion, or restore command.
 
 Rollback verifies the live head, checkpoints it again, then restores exact bytes and the recorded POSIX mode as a new revision. Backups are retained, so rollback itself is reversible. The controller never uses `git reset` or `git checkout`.
 
@@ -200,4 +219,5 @@ Always include exact model/provider ID, judge ID, suite, parent and candidate ha
 - Model/provider drift can make old results stale even when an identifier is unchanged.
 - Atomic replacement preserves exact bytes and POSIX mode, but not every ACL, xattr, hardlink relationship, or platform-specific filesystem property.
 - State confidentiality relies on local account/filesystem controls. The state is not encrypted.
-- Exact one-block deletion improves attribution but does not eliminate cumulative-removal interactions.
+- One-unit trials improve attribution but do not eliminate cumulative-removal interactions; higher configured concurrency deliberately weakens that attribution.
+- Host-specific production adapters are not bundled yet. Pre-flight relies on exact route/tier facts supplied by the invoking host.

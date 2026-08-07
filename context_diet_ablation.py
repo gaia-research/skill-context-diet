@@ -17,6 +17,7 @@ import os
 import re
 import stat
 import sys
+import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -156,6 +157,16 @@ def parse_models(values: Iterable[str]) -> List[str]:
     return models
 
 
+def _parse_model_routes(values: Iterable[str]) -> List[Dict[str, str]]:
+    routes: List[Dict[str, str]] = []
+    for value in values:
+        if "=" not in value:
+            raise AblationError("model routes must use exact-provider/model=tier")
+        model, tier = value.rsplit("=", 1)
+        routes.append({"modelId": _validate_model_id(model), "tier": tier.strip().lower()})
+    return routes
+
+
 def risk_assessment(request: str, original: bytes, candidate: Optional[bytes] = None) -> Dict[str, Any]:
     reasons: List[str] = []
     for name, pattern in AGGRESSIVE_PATTERNS:
@@ -189,6 +200,31 @@ def risk_assessment(request: str, original: bytes, candidate: Optional[bytes] = 
         "removedUnits": removed_units,
         "protectedUnitsRemoved": protected_removed,
         "thresholdVersion": 1,
+    }
+
+
+def preflight(request: str, original: bytes, candidate: Optional[bytes],
+              model_routes: Iterable[str]) -> Dict[str, Any]:
+    """Return an invocation-scoped suggestion; never starts or edits a session."""
+    assessment = risk_assessment(request, original, candidate)
+    routes = _parse_model_routes(model_routes)
+    high_tiers = {"big", "high", "frontier", "premium"}
+    capable = [route for route in routes if route["tier"] in high_tiers]
+    suggestion_reasons = list(assessment["reasons"])
+    if capable:
+        suggestion_reasons.append("user_invocation_has_declared_high_tier_model")
+    return {
+        "invocationScoped": True,
+        "suggestAblation": assessment["guidedAblation"] or bool(capable),
+        "suggestionOnly": True,
+        "reasons": suggestion_reasons,
+        "availableHighTierModels": capable,
+        "riskAssessment": assessment,
+        "message": (
+            "Offer guided ablation; do not start it without explicit user confirmation."
+            if assessment["guidedAblation"] or capable else
+            "No ablation suggestion from this pre-flight."
+        ),
     }
 
 
@@ -425,6 +461,37 @@ def _validate_evidence_summary(root: Path, model: str, summary: Dict[str, Any],
         raise AblationError("stored evidence checkpoint mismatch for %s" % model)
 
 
+def _trial_unit_ids(trial: Dict[str, Any]) -> List[str]:
+    values = trial.get("unitIds")
+    if values is None and trial.get("unitId"):
+        values = [trial["unitId"]]
+    if not isinstance(values, list) or not values or any(not isinstance(item, str) for item in values):
+        raise AblationError("trial has no valid unit IDs")
+    if len(values) != len(set(values)):
+        raise AblationError("trial repeats an inventory unit")
+    return values
+
+
+def _bytes_without_units(original: bytes, units: Dict[str, Dict[str, Any]],
+                         removed_ids: Iterable[str]) -> bytes:
+    spans = []
+    for unit_id in removed_ids:
+        unit = units.get(unit_id)
+        if not unit:
+            raise AblationError("unknown removed inventory unit %s" % unit_id)
+        spans.append((unit["byteStart"], unit["byteEnd"]))
+    spans.sort()
+    if any(spans[index][1] > spans[index + 1][0] for index in range(len(spans) - 1)):
+        raise AblationError("inventory deletion spans overlap")
+    parts = []
+    offset = 0
+    for begin, end in spans:
+        parts.append(original[offset:begin])
+        offset = end
+    parts.append(original[offset:])
+    return b"".join(parts)
+
+
 def _validate_refs(root: Path, state: Dict[str, Any]) -> None:
     revisions = state.get("revisions", [])
     if not revisions:
@@ -461,23 +528,20 @@ def _validate_refs(root: Path, state: Dict[str, Any]) -> None:
         parent = revision_ids.get(trial.get("parentRevision"))
         if not parent or parent.get("sha256") != trial.get("parentSha256"):
             raise AblationError("trial parent checkpoint mismatch for %s" % trial.get("id"))
-        unit = units.get(trial.get("unitId"))
+        trial_ids = _trial_unit_ids(trial)
         prior_ids = parent.get("removedUnits", [])
-        if not unit or unit.get("protected") or trial.get("removedUnits") != prior_ids + [trial.get("unitId")]:
-            raise AblationError("trial is not one valid unprotected inventory deletion")
-        if onboarding and trial.get("unitId") in onboarding.get("protectedUnits", []):
+        concurrency = state.get("concurrency", 1)
+        selected = [units.get(unit_id) for unit_id in trial_ids]
+        if (len(trial_ids) > concurrency or any(unit is None or unit.get("protected") for unit in selected) or
+                any(unit_id in prior_ids for unit_id in trial_ids) or
+                trial.get("removedUnits") != prior_ids + trial_ids):
+            raise AblationError("trial is not a valid bounded inventory deletion")
+        if onboarding and any(unit_id in onboarding.get("protectedUnits", []) for unit_id in trial_ids):
             raise AblationError("trial deletes an onboarding-protected unit")
-        try:
-            prior_units = [units[unit_id] for unit_id in prior_ids]
-        except KeyError:
-            raise AblationError("trial parent references an unknown removed unit")
-        shift = sum(old["byteEnd"] - old["byteStart"] for old in prior_units if old["byteStart"] < unit["byteStart"])
-        begin = unit["byteStart"] - shift
-        length = unit["byteEnd"] - unit["byteStart"]
         parent_bytes = _safe_artifact(root, parent["snapshot"]).read_bytes()
-        expected_span = original_bytes[unit["byteStart"]:unit["byteEnd"]]
-        expected_candidate = parent_bytes[:begin] + parent_bytes[begin + length:]
-        if parent_bytes[begin:begin + length] != expected_span or candidate_bytes != expected_candidate:
+        expected_parent = _bytes_without_units(original_bytes, units, prior_ids)
+        expected_candidate = _bytes_without_units(original_bytes, units, prior_ids + trial_ids)
+        if parent_bytes != expected_parent or candidate_bytes != expected_candidate:
             raise AblationError("trial candidate is not the recorded exact-span deletion")
         for model, evidence in trial.get("evidence", {}).items():
             _validate_evidence_summary(root, model, evidence, state.get("suiteSha256"))
@@ -666,12 +730,14 @@ def _open(path: Path) -> Tuple[Path, Dict[str, Any]]:
 
 
 def init_session(path: Path, models: List[str], designer_model: str, repetitions: int,
-                 trigger_reasons: Optional[List[str]] = None) -> Dict[str, Any]:
+                 trigger_reasons: Optional[List[str]] = None, concurrency: int = 1) -> Dict[str, Any]:
     target = canonical_target(path)
     models = parse_models(models)
     designer_model = _validate_model_id(designer_model)
     if repetitions < 1 or repetitions > 10:
         raise AblationError("repetitions must be between 1 and 10")
+    if concurrency < 1 or concurrency > 10:
+        raise AblationError("concurrency must be between 1 and 10")
     root = session_dir(target)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
@@ -682,7 +748,7 @@ def init_session(path: Path, models: List[str], designer_model: str, repetitions
         if (root / "state.json").exists():
             state = _load_state(root)
             if (state.get("models") != models or state.get("designerModel") != designer_model or
-                    state.get("repetitions") != repetitions):
+                    state.get("repetitions") != repetitions or state.get("concurrency", 1) != concurrency):
                 raise AblationError(
                     "an immutable session already exists with different model/evaluation settings; "
                     "resume it or select a separate CONTEXT_DIET_STATE_DIR for a new generation"
@@ -709,6 +775,7 @@ def init_session(path: Path, models: List[str], designer_model: str, repetitions
             "models": models,
             "designerModel": designer_model,
             "repetitions": repetitions,
+            "concurrency": concurrency,
             "inventory": inventory_ref,
             "onboarding": None,
             "suiteSha256": None,
@@ -733,7 +800,8 @@ def init_session(path: Path, models: List[str], designer_model: str, repetitions
             "lastTransaction": None,
         }
         _save_state(root, state)
-        _event(root, "session_initialized", originalSha256=sha256_bytes(source), models=models)
+        _event(root, "session_initialized", originalSha256=sha256_bytes(source), models=models,
+               concurrency=concurrency)
         return session_summary(root, state)
 
 
@@ -942,11 +1010,19 @@ def _unit_by_id(inventory: Dict[str, Any], unit_id: str) -> Dict[str, Any]:
     raise AblationError("unknown inventory unit %s" % unit_id)
 
 
-def stage_trial(path: Path, unit_id: str) -> Dict[str, Any]:
+def stage_trial(path: Path, unit_ids: Any) -> Dict[str, Any]:
     target = canonical_target(path)
+    requested = [unit_ids] if isinstance(unit_ids, str) else list(unit_ids)
+    if not requested or any(not isinstance(unit_id, str) for unit_id in requested):
+        raise AblationError("at least one inventory unit is required")
+    if len(requested) != len(set(requested)):
+        raise AblationError("a trial cannot repeat an inventory unit")
     root = session_dir(target)
     with SessionLock(root):
         root, state = _open(target)
+        concurrency = state.get("concurrency", 1)
+        if len(requested) > concurrency:
+            raise AblationError("trial requests %d units but session concurrency is %d" % (len(requested), concurrency))
         if state["status"] != "ready" or state.get("activeTrial"):
             raise AblationError("a trial may be staged only from ready with no active trial")
         current_sha = _current_revision(state)["sha256"]
@@ -956,23 +1032,23 @@ def stage_trial(path: Path, unit_id: str) -> Dict[str, Any]:
             raise AblationError("all configured models need passing baselines for the current checkpoint")
         live = _require_live_head(state)
         inventory = _load_inventory(root, state)
-        unit = _unit_by_id(inventory, unit_id)
+        units = {unit["id"]: unit for unit in inventory["units"]}
+        selected = [_unit_by_id(inventory, unit_id) for unit_id in requested]
         onboarding = _onboarding(root, state)
-        if unit["protected"] or unit_id in onboarding["protectedUnits"]:
-            raise AblationError("unit %s is protected and cannot be ablated" % unit_id)
+        protected = [unit["id"] for unit in selected
+                     if unit["protected"] or unit["id"] in onboarding["protectedUnits"]]
+        if protected:
+            raise AblationError("protected units cannot be ablated: %s" % ", ".join(protected))
         revision = _current_revision(state)
         removed = list(revision.get("removedUnits", []))
-        if unit_id in removed:
-            raise AblationError("unit %s is already absent from this revision" % unit_id)
+        already_absent = [unit_id for unit_id in requested if unit_id in removed]
+        if already_absent:
+            raise AblationError("units already absent from this revision: %s" % ", ".join(already_absent))
         original = _safe_artifact(root, state["revisions"][0]["snapshot"]).read_bytes()
-        prior_units = [_unit_by_id(inventory, old) for old in removed]
-        shift = sum(old["byteEnd"] - old["byteStart"] for old in prior_units if old["byteStart"] < unit["byteStart"])
-        begin = unit["byteStart"] - shift
-        length = unit["byteEnd"] - unit["byteStart"]
-        expected = original[unit["byteStart"]:unit["byteEnd"]]
-        if live[begin:begin + length] != expected or sha256_bytes(expected) != unit["sha256"]:
-            raise AblationError("unit span no longer matches the accepted checkpoint")
-        candidate = live[:begin] + live[begin + length:]
+        expected_live = _bytes_without_units(original, units, removed)
+        if live != expected_live:
+            raise AblationError("current checkpoint is not the recorded exact-span composition")
+        candidate = _bytes_without_units(original, units, removed + requested)
         if not candidate.strip():
             raise AblationError("whole-file or empty-file ablation is prohibited")
         trial_id = "T%04d" % state["nextTrial"]
@@ -985,13 +1061,14 @@ def stage_trial(path: Path, unit_id: str) -> Dict[str, Any]:
         trial = {
             "id": trial_id,
             "status": "staged",
-            "unitId": unit_id,
+            "unitId": requested[0],
+            "unitIds": requested,
             "parentRevision": revision["id"],
             "parentSha256": revision["sha256"],
             "candidateSha256": sha256_bytes(candidate),
             "candidate": candidate_ref,
             "diff": diff_ref,
-            "removedUnits": removed + [unit_id],
+            "removedUnits": removed + requested,
             "evidence": {},
             "createdAt": utc_now(),
         }
@@ -1000,9 +1077,10 @@ def stage_trial(path: Path, unit_id: str) -> Dict[str, Any]:
         state["status"] = "staged"
         state["nextAction"] = "run fresh paired evaluations and record evidence for each configured model"
         _save_state(root, state)
-        _event(root, "trial_staged", trial=trial_id, unit=unit_id, parentSha256=revision["sha256"], candidateSha256=trial["candidateSha256"])
+        _event(root, "trial_staged", trial=trial_id, units=requested,
+               parentSha256=revision["sha256"], candidateSha256=trial["candidateSha256"])
         summary = session_summary(root, state)
-        summary["trial"] = {key: trial[key] for key in ("id", "unitId", "parentSha256", "candidateSha256", "candidate", "diff")}
+        summary["trial"] = {key: trial[key] for key in ("id", "unitIds", "parentSha256", "candidateSha256", "candidate", "diff")}
         return summary
 
 
@@ -1194,6 +1272,13 @@ def _guidance_cell(root: Path, state: Dict[str, Any], model: str,
 
 def session_summary(root: Path, state: Dict[str, Any]) -> Dict[str, Any]:
     revision = _current_revision(state)
+    original_revision = state["revisions"][0]
+    original_size = len(_safe_artifact(root, original_revision["snapshot"]).read_bytes())
+    current_size = len(_safe_artifact(root, revision["snapshot"]).read_bytes())
+    removed_percent = round(max(0.0, (original_size - current_size) * 100.0 / max(1, original_size)), 2)
+    accepted = [item for item in state["revisions"] if item.get("action") == "accepted_ablation"]
+    last_ablation_at = accepted[-1]["createdAt"] if accepted else None
+    measured_at = utc_now()
     live_sha = None
     drift = None
     try:
@@ -1220,7 +1305,20 @@ def session_summary(root: Path, state: Dict[str, Any]) -> Dict[str, Any]:
         "models": state["models"],
         "designerModel": state["designerModel"],
         "repetitions": state["repetitions"],
+        "concurrency": state.get("concurrency", 1),
         "suiteSha256": state.get("suiteSha256"),
+        "lastAblationAt": last_ablation_at,
+        "lastActivityAt": state.get("updatedAt"),
+        "baselineComparison": {
+            "baselineRevision": original_revision["id"],
+            "baselineCapturedAt": original_revision["createdAt"],
+            "baselineBytes": original_size,
+            "currentRevision": revision["id"],
+            "currentRevisionAt": revision["createdAt"],
+            "currentBytes": current_size,
+            "measuredAt": measured_at,
+            "removedPercentFromBaseline": removed_percent,
+        },
         "baselineVerdicts": {model: state.get("baselines", {}).get(model, {"verdict": "untested"})["verdict"] for model in state["models"]},
         "activeTrial": active["id"] if active else None,
         "candidateSha256": active["candidateSha256"] if active else None,
@@ -1253,18 +1351,72 @@ def list_sessions() -> Dict[str, Any]:
     return {"stateRoot": str(state_root()), "sessions": sessions}
 
 
+def archive_session(path: Path, output: Path) -> Dict[str, Any]:
+    """Create a user-requested private archive. Archiving is never automatic."""
+    target = canonical_target(path)
+    root = session_dir(target)
+    with SessionLock(root):
+        root, state = _open(target)
+        destination = output.expanduser()
+        if destination.exists() or destination.is_symlink():
+            raise AblationError("archive destination already exists: %s" % destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination = destination.resolve(strict=False)
+        if root == destination or root in destination.parents:
+            raise AblationError("archive destination must be outside the session directory")
+        for item in root.rglob("*"):
+            if item == root / ".lock":
+                continue
+            if item.is_symlink() or (not item.is_dir() and not item.is_file()):
+                raise AblationError("session contains an unsafe archive entry: %s" % item)
+        fd, temp_name = tempfile.mkstemp(prefix=".context-diet-archive-", dir=str(destination.parent))
+        os.close(fd)
+        temp_path = Path(temp_name)
+        try:
+            with tarfile.open(str(temp_path), "w:gz") as archive:
+                prefix = "context-diet-ablation-%s" % state["sessionId"]
+                for item in sorted(root.rglob("*"), key=lambda value: str(value.relative_to(root))):
+                    if item == root / ".lock":
+                        continue
+                    archive.add(str(item), arcname="%s/%s" % (prefix, item.relative_to(root)), recursive=False)
+            os.chmod(temp_path, 0o600)
+            os.replace(str(temp_path), str(destination))
+            _fsync_dir(destination.parent)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+        data = destination.read_bytes()
+        return {
+            "archived": True,
+            "automatic": False,
+            "target": str(target),
+            "sessionId": state["sessionId"],
+            "archive": str(destination),
+            "archiveSha256": sha256_bytes(data),
+            "bytes": len(data),
+            "createdAt": utc_now(),
+            "warning": "Archive may contain complete private context, prompts, evidence, and snapshots.",
+        }
+
+
 def _emit(data: Dict[str, Any], as_json: bool) -> None:
     if as_json:
         print(json.dumps(data, indent=2, sort_keys=True))
         return
-    for key in ("status", "target", "currentRevision", "currentSha256", "activeTrial", "candidateSha256", "drift", "nextAction", "inventoryPath", "stateDirectory"):
+    for key in ("status", "target", "currentRevision", "currentSha256", "activeTrial", "candidateSha256", "drift", "concurrency", "lastAblationAt", "lastActivityAt", "nextAction", "inventoryPath", "stateDirectory", "archive", "archiveSha256"):
         if key in data and data[key] is not None:
             print("%s: %s" % (key, data[key]))
     if "reasons" in data:
-        print("guidedAblation: %s" % data["guidedAblation"])
+        if "guidedAblation" in data:
+            print("guidedAblation: %s" % data["guidedAblation"])
+        if "suggestAblation" in data:
+            print("suggestAblation: %s" % data["suggestAblation"])
         print("reasons: %s" % (", ".join(data["reasons"]) or "none"))
     if "baselineVerdicts" in data:
         print("baselines: %s" % json.dumps(data["baselineVerdicts"], sort_keys=True))
+    if "baselineComparison" in data:
+        comparison = data["baselineComparison"]
+        print("baselineDelta: %(removedPercentFromBaseline)s%% removed · %(baselineBytes)s → %(currentBytes)s bytes · measured %(measuredAt)s" % comparison)
     if "trialEvidence" in data and data["trialEvidence"]:
         print("trialEvidence: %s" % json.dumps(data["trialEvidence"], sort_keys=True))
     for cell in data.get("modelGuidance", []):
@@ -1274,18 +1426,26 @@ def _emit(data: Dict[str, Any], as_json: bool) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Checkpointed, one-removal-at-a-time context ablation")
+    parser = argparse.ArgumentParser(description="Checkpointed, bounded-concurrency context ablation")
     sub = parser.add_subparsers(dest="action", required=True)
     detect = sub.add_parser("detect", help="detect aggressive removal intent or candidate risk")
     detect.add_argument("file")
     detect.add_argument("--request", default="")
     detect.add_argument("--candidate")
     detect.add_argument("--json", action="store_true")
+    pre = sub.add_parser("preflight", help="on explicit invocation, assess risk and declared model tiers")
+    pre.add_argument("file")
+    pre.add_argument("--request", default="")
+    pre.add_argument("--candidate")
+    pre.add_argument("--model-route", action="append", default=[], metavar="PROVIDER/MODEL=TIER")
+    pre.add_argument("--json", action="store_true")
     init = sub.add_parser("init", help="create the original checkpoint and onboarding inventory")
     init.add_argument("file")
     init.add_argument("--models", nargs="+", required=True)
     init.add_argument("--designer-model", required=True)
     init.add_argument("--repetitions", type=int, default=3)
+    init.add_argument("--concurrency", type=int, default=1,
+                      help="maximum inventory units in one trial (default: 1; max: 10)")
     init.add_argument("--trigger", action="append", default=[])
     init.add_argument("--json", action="store_true")
     onboard = sub.add_parser("onboard", help="seal a user-approved suite and protected set")
@@ -1296,9 +1456,10 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("file")
     evidence.add_argument("--evidence", required=True)
     evidence.add_argument("--json", action="store_true")
-    stage = sub.add_parser("stage", help="prepare an exact one-unit deletion without editing the target")
+    stage = sub.add_parser("stage", help="prepare a bounded exact-unit deletion without editing the target")
     stage.add_argument("file")
-    stage.add_argument("--unit", required=True)
+    stage.add_argument("--unit", required=True, action="append",
+                       help="inventory unit; repeat up to the session concurrency")
     stage.add_argument("--json", action="store_true")
     accept = sub.add_parser("accept", help="atomically apply a fully passing candidate")
     accept.add_argument("file")
@@ -1321,6 +1482,10 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--json", action="store_true")
     listing = sub.add_parser("list", help="list local sessions")
     listing.add_argument("--json", action="store_true")
+    archive = sub.add_parser("archive", help="manually create a private session archive")
+    archive.add_argument("file")
+    archive.add_argument("--output", required=True)
+    archive.add_argument("--json", action="store_true")
     return parser
 
 
@@ -1332,8 +1497,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             original_path = canonical_target(Path(args.file))
             candidate = canonical_target(Path(args.candidate)).read_bytes() if args.candidate else None
             result = risk_assessment(args.request, original_path.read_bytes(), candidate)
+        elif args.action == "preflight":
+            original_path = canonical_target(Path(args.file))
+            candidate = canonical_target(Path(args.candidate)).read_bytes() if args.candidate else None
+            result = preflight(args.request, original_path.read_bytes(), candidate, args.model_route)
         elif args.action == "init":
-            result = init_session(Path(args.file), args.models, args.designer_model, args.repetitions, args.trigger)
+            result = init_session(Path(args.file), args.models, args.designer_model, args.repetitions,
+                                  args.trigger, args.concurrency)
         elif args.action == "onboard":
             result = approve_onboarding(Path(args.file), Path(args.manifest))
         elif args.action in {"record-evidence", "record-baseline", "record-trial"}:
@@ -1352,6 +1522,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             result = status(Path(args.file))
         elif args.action == "list":
             result = list_sessions()
+        elif args.action == "archive":
+            result = archive_session(Path(args.file), Path(args.output))
         else:
             parser.error("unknown action")
             return 2
