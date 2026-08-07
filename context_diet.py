@@ -19,6 +19,7 @@ Usage:
     python3 context_diet.py CLAUDE.md
     python3 context_diet.py CLAUDE.md --limit 40000 --json
     python3 context_diet.py path/to/.cursorrules
+    python3 context_diet.py ablate status CLAUDE.md
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ import re
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from typing import List, Optional
 
 DEFAULT_LIMIT = 40_000
 TOKENS_PER_CHAR = 0.25  # chars/4 heuristic; count of record is chars, not tokens
@@ -141,7 +143,14 @@ def renderReport(data: dict) -> str:
     return "\n".join(out)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    effective = list(sys.argv[1:] if argv is None else argv)
+    if effective and effective[0] in {"ablate", "ablation"}:
+        # Keep the measurement parser untouched; the stateful mode is an
+        # explicitly namespaced, optional stdlib module.
+        from context_diet_ablation import main as ablation_main
+        return ablation_main(effective[1:])
+
     ap = argparse.ArgumentParser(description="Measure an oversized agent-context file.")
     ap.add_argument("file", help="path to the context file (CLAUDE.md, .cursorrules, …)")
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
@@ -149,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--level", type=int, default=2,
                     help="heading level to split on (default 2 = ##)")
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(effective)
 
     # Windows consoles default to cp1252 and choke on box-drawing glyphs.
     try:

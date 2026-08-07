@@ -21,3 +21,6 @@ htmlcov/
 
 # Session logs — never commit these (contain agent conversation content)
 *.jsonl
+
+# Optional project-local Context Diet state/sandboxes (contain full context + model output)
+.context-diet/
