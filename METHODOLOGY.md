@@ -125,9 +125,10 @@ unnecessary.
 4. **Baseline exact routes.** Run every required subject model in fresh isolated contexts for the
    configured repetition count. Missing routes, failed calls, uncertain judgments, and critical
    baseline failures are inconclusive and block experimentation.
-5. **Change one independent variable.** Construct a deletion-only candidate from one controller
-   span against the current accepted checkpoint. Do not combine cleanup, reference repair, or a
-   second omission in that trial.
+5. **Change one independent variable by default.** Construct a deletion-only candidate from one
+   controller span against the current accepted checkpoint. Advanced users may explicitly configure
+   a bounded multi-span candidate; report that reduced attribution, and still do not combine cleanup
+   or reference repair in the trial.
 6. **Run paired evaluations.** Give parent and candidate variants identical task prompts, keep
    rubrics hidden from the subject, and score deterministic checks directly or qualitative outputs
    with the disclosed capable judge. Preserve failed/null cells.

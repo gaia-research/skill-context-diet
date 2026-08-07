@@ -36,12 +36,12 @@ must survive* — cache the winning corpus and re-score it for a strict replay.
 
 `ablation.workflow.js` is a separate product workflow. Unlike the hard-coded Lab 001 bake-off, it
 accepts bounded snapshot content, a sealed suite/hash, one parent/candidate pair, 1–5 exact subject
-model IDs, one exact designer/judge ID, and 1–5 repetitions.
+model IDs, one exact designer/judge ID, 3–7 sealed cases, and 1–10 repetitions.
 
 For each stable model/repetition work ID it:
 
 1. explicitly routes a fresh parent simulation to the requested exact subject model;
-2. for trials, routes the one-unit candidate through the same task prompts;
+2. for trials, routes the bounded-unit candidate through the same task prompts;
 3. keeps sealed rubrics out of subject prompts;
 4. asks the exact disclosed judge model to classify each response `pass`, `fail`, or
    `inconclusive`;
@@ -50,7 +50,7 @@ For each stable model/repetition work ID it:
    repetition values for `context_diet.py ablate record-evidence`.
 
 Every `agent()` call has a stable label. Work is batched at concurrency two, and user inputs are
-bounded to at most five models, five repetitions, and ten cases. Explicit route failures are caught
+bounded to at most five models, ten repetitions, and seven cases. Explicit route failures are caught
 and reported; there is no fallback to the session model.
 
 The workflow sends snapshot and evaluation content to the selected providers. Obtain disclosure

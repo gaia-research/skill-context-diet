@@ -29,7 +29,7 @@ python3 context_diet.py ablate preflight FILE \
   --model-route provider/frontier-model=big --json
 ```
 
-A declared high-tier route may justify proactively offering ablation, but pre-flight must not run outside a user invocation, infer tiers from display names, create a session, or edit the target. Host-specific discovery adapters are follow-up work.
+A declared high-tier route may justify proactively offering ablation, but pre-flight must not run outside a user invocation, infer tiers from display names, create a session, or edit the target.
 
 Also route automatically, **before modifying the target**, when any of these is true:
 

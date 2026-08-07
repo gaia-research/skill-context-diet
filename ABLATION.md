@@ -51,7 +51,7 @@ python3 context_diet.py ablate init CLAUDE.md \
   --repetitions 3 --concurrency 1 --trigger whole_file_removal
 ```
 
-`preflight` is suggestion-only: it neither creates state nor edits the target. Run it only after the user invokes Context Diet. A declared `big`, `high`, `frontier`, or `premium` route may prompt an offer to use ablation, but the user must still confirm initialization. Host-specific route-discovery adapters will follow; the controller does not guess tiers from labels.
+`preflight` is suggestion-only: it neither creates state nor edits the target. Run it only after the user invokes Context Diet. A declared `big`, `high`, `frontier`, or `premium` route may prompt an offer to use ablation, but the user must still confirm initialization. The controller does not guess tiers from labels.
 
 `init` is idempotent for an existing target session. It prints the private state directory and generated `inventory.json`. Exact identifiers are required; labels such as “Opus”, “Sol”, and “Sonnet” are not identifiers and are never silently mapped. `--concurrency` is immutable for that session, defaults to one, and is bounded from 1–10.
 
@@ -220,4 +220,4 @@ Always include exact model/provider ID, judge ID, suite, parent and candidate ha
 - Atomic replacement preserves exact bytes and POSIX mode, but not every ACL, xattr, hardlink relationship, or platform-specific filesystem property.
 - State confidentiality relies on local account/filesystem controls. The state is not encrypted.
 - One-unit trials improve attribution but do not eliminate cumulative-removal interactions; higher configured concurrency deliberately weakens that attribution.
-- Host-specific production adapters are not bundled yet. Pre-flight relies on exact route/tier facts supplied by the invoking host.
+- Pre-flight relies on exact route/tier facts supplied at invocation.

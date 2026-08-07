@@ -136,7 +136,7 @@ python3 context_diet.py ablate archive CLAUDE.md \
 
 Nothing auto-archives, rotates, uploads, or deletes session state.
 
-The bundled `ablation.workflow.js` can run bounded exact-model simulations in hosts with dynamic workflow/model routing. Unavailable routes remain inconclusive and never fall back. Results are scoped as “no regression observed for this exact model and sealed suite,” never as proof that a rule or model family is universally safe. Host-specific adapters are intentionally follow-up work; until then, hosts must declare exact routes and tiers rather than making the controller guess from labels such as Opus, Sol, or Sonnet. The controller stays consolidated while the safety state machine is host-neutral; split adapter integration into separate modules when those adapters arrive. See [ABLATION.md](./ABLATION.md) for onboarding/evidence schemas, privacy disclosure, recovery, and limitations.
+The bundled `ablation.workflow.js` can run bounded exact-model simulations in environments with dynamic workflow/model routing. Unavailable routes remain inconclusive and never fall back. Results are scoped as “no regression observed for this exact model and sealed suite,” never as proof that a rule or model family is universally safe. Exact routes and tiers must be declared rather than guessed from labels such as Opus, Sol, or Sonnet. See [ABLATION.md](./ABLATION.md) for onboarding/evidence schemas, privacy disclosure, recovery, and limitations.
 
 Pi invokes the installed skill as `/skill:context-diet`; hosts may provide the shorter `/context-diet` alias.
 

@@ -52,13 +52,29 @@ class AblationLifecycleTests(unittest.TestCase):
             "sourceSha256": summary["currentSha256"],
             "designerModel": DESIGNER,
             "protectedUnits": [],
-            "cases": [{
-                "id": "case-1",
-                "prompt": "Summarize the expected behavior.",
-                "rubric": "Preserves authorization and concise user-facing behavior.",
-                "critical": True,
-                "unitIds": removable,
-            }],
+            "cases": [
+                {
+                    "id": "case-1",
+                    "prompt": "Summarize the expected behavior.",
+                    "rubric": "Preserves authorization and concise user-facing behavior.",
+                    "critical": True,
+                    "unitIds": removable,
+                },
+                {
+                    "id": "case-2",
+                    "prompt": "State the authorization boundary.",
+                    "rubric": "Does not bypass authorization.",
+                    "critical": True,
+                    "unitIds": removable,
+                },
+                {
+                    "id": "case-3",
+                    "prompt": "Give a concise user-facing answer.",
+                    "rubric": "Keeps output concise.",
+                    "critical": False,
+                    "unitIds": removable,
+                },
+            ],
         }
         path = self.base / "manifest.json"
         path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -79,10 +95,14 @@ class AblationLifecycleTests(unittest.TestCase):
             "trialId": active["id"] if kind == "trial" else None,
             "repetitions": 2,
             "freshContext": True,
-            "cases": [{"caseId": "case-1", "runs": [status, status]}],
+            "cases": [
+                {"caseId": case_id, "runs": [status, status]}
+                for case_id in ("case-1", "case-2", "case-3")
+            ],
         }
         if kind == "trial":
-            raw["cases"][0]["parentRuns"] = ["pass", "pass"]
+            for case in raw["cases"]:
+                case["parentRuns"] = ["pass", "pass"]
         path = self.base / ("%s-%s-%s.json" % (kind, model.replace("/", "-"), status))
         path.write_text(json.dumps(raw), encoding="utf-8")
         return path
@@ -147,6 +167,21 @@ class AblationLifecycleTests(unittest.TestCase):
         with self.assertRaises(ab.AblationError):
             ab.stage_trial(self.target, removable[:3])
 
+    def test_onboarding_requires_three_to_seven_cases(self):
+        summary = self.init()
+        manifest = {
+            "approved": True,
+            "providerDisclosureAccepted": True,
+            "sourceSha256": summary["currentSha256"],
+            "designerModel": DESIGNER,
+            "protectedUnits": [],
+            "cases": [{"id": "only", "prompt": "Respond.", "rubric": "Responds."}],
+        }
+        path = self.base / "too-small-manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaises(ab.AblationError):
+            ab.approve_onboarding(self.target, path)
+
     def test_onboarding_and_every_model_baseline_gate_staging(self):
         removable = self.onboard()
         ab.record_evidence(self.target, self.evidence("baseline", MODELS[0]))
@@ -187,7 +222,11 @@ class AblationLifecycleTests(unittest.TestCase):
             "sourceSha256": init["currentSha256"],
             "designerModel": DESIGNER,
             "protectedUnits": [],
-            "cases": [{"id": "tiny", "prompt": "Respond.", "rubric": "Responds.", "unitIds": [unit["id"]]}],
+            "cases": [
+                {"id": "tiny-1", "prompt": "Respond.", "rubric": "Responds.", "unitIds": [unit["id"]]},
+                {"id": "tiny-2", "prompt": "Be concise.", "rubric": "Is concise.", "unitIds": [unit["id"]]},
+                {"id": "tiny-3", "prompt": "Follow safety rules.", "rubric": "Is safe.", "unitIds": [unit["id"]]},
+            ],
         }
         manifest_path = self.base / "tiny-manifest.json"
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -202,7 +241,10 @@ class AblationLifecycleTests(unittest.TestCase):
             "candidateSha256": None,
             "repetitions": 1,
             "freshContext": True,
-            "cases": [{"caseId": "tiny", "runs": ["pass"]}],
+            "cases": [
+                {"caseId": case_id, "runs": ["pass"]}
+                for case_id in ("tiny-1", "tiny-2", "tiny-3")
+            ],
         }
         evidence_path = self.base / "tiny-evidence.json"
         evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
@@ -331,12 +373,27 @@ class AblationLifecycleTests(unittest.TestCase):
         with self.assertRaises(ab.AblationError):
             ab.archive_session(self.target, output)
 
+    def test_archive_rejects_in_session_destination_with_relative_state_root(self):
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(str(self.base))
+            os.environ["CONTEXT_DIET_STATE_DIR"] = ".relative-state"
+            ab.init_session(self.target, MODELS, DESIGNER, 2)
+            root = ab.session_dir(self.target.resolve())
+            with self.assertRaises(ab.AblationError):
+                ab.archive_session(self.target, root / "nested.tar.gz")
+        finally:
+            os.chdir(old_cwd)
+
     def test_workflow_and_installer_contracts(self):
         workflow = (ROOT / "ablation.workflow.js").read_text(encoding="utf-8")
         self.assertIn("model: work.model", workflow)
         self.assertIn("missing_subject_coverage", workflow)
         self.assertIn("intendedWorkIds", workflow)
         self.assertIn("label: `judge:", workflow)
+        self.assertIn("exactSubjectMap", workflow)
+        self.assertIn("exactJudgment", workflow)
+        self.assertIn("repetitions > 10", workflow)
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         for required in ("context_diet_ablation.py", "ABLATION.md", "bakeoff.workflow.js", "ablation.workflow.js"):
             self.assertIn(required, installer)

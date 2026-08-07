@@ -824,8 +824,8 @@ def approve_onboarding(path: Path, manifest_path: Path) -> Dict[str, Any]:
         if _validate_model_id(manifest.get("designerModel")) != state["designerModel"]:
             raise AblationError("onboarding designer model does not match configured exact model")
         cases = manifest.get("cases")
-        if not isinstance(cases, list) or not cases:
-            raise AblationError("onboarding must include at least one evaluation case")
+        if not isinstance(cases, list) or len(cases) < 3 or len(cases) > 7:
+            raise AblationError("onboarding must include 3-7 evaluation cases")
         inventory = _load_inventory(root, state)
         unit_ids = {unit["id"] for unit in inventory["units"]}
         case_ids = set()
@@ -1357,6 +1357,7 @@ def archive_session(path: Path, output: Path) -> Dict[str, Any]:
     root = session_dir(target)
     with SessionLock(root):
         root, state = _open(target)
+        root = root.resolve(strict=True)
         destination = output.expanduser()
         if destination.exists() or destination.is_symlink():
             raise AblationError("archive destination already exists: %s" % destination)
