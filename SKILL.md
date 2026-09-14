@@ -1,13 +1,13 @@
 ---
 name: context-diet
 description: >-
-  Measure and compact an oversized agent-context file (CLAUDE.md, .cursorrules,
-  AGENTS.md, a system prompt) without losing rules, or safely run reversible
-  bounded, reversible ablation when intentional/aggressive context removal is
-  requested. Triggers: "CLAUDE.md too big", "over the char limit", "context file
-  too large", "compact my agent config", "trim CLAUDE.md", "delete context",
-  "rebuild instructions from scratch", "context diet", "/context-diet".
-version: 1.2.0
+  Measure and compact any agent-context file (CLAUDE.md, .cursorrules, AGENTS.md,
+  a system prompt) without losing rules, or safely run reversible bounded ablation
+  when intentional/aggressive context removal is requested. Triggers: "CLAUDE.md
+  too big", "over the char limit", "context file too large", "compact my agent
+  config", "trim CLAUDE.md", "delete context", "rebuild instructions from
+  scratch", "context diet", "/context-diet".
+version: 1.3.0
 ---
 
 # context-diet
@@ -16,7 +16,8 @@ Measure context size, preserve rules during ordinary compaction, and fail over t
 
 ## Route the request before editing
 
-Use normal measurement/bake-off for rule-preserving work:
+Use normal measurement/bake-off for rule-preserving work at any file size. The
+limit is optional: supply it when the target harness has a known character budget.
 
 ```bash
 python3 context_diet.py FILE [--limit 40000] [--json]
@@ -56,12 +57,13 @@ When escalation occurs, state the exact trigger, do not edit the live file, and 
 2. Extract an exhaustive atomic rule inventory and identify CI/incident, authorization, safety, exact-literal, preference, and routing constraints as protected.
 3. Produce review-only candidates for externalize+link, condense, telegraphic, and hybrid strategies.
 4. Adversarially classify every original rule `present`, `weakened`, or `missing` against each complete candidate corpus, including linked files.
-5. Disqualify over-limit candidates and any candidate with a weakened/missing load-bearing rule.
-6. Show the winner and diff. Apply only after user review using the host's normal file-edit flow.
+5. Disqualify candidates over a supplied limit or with any weakened/missing inventoried rule.
+6. Include the no-op control; recommend a change only when a candidate materially reduces inline size.
+7. Show the winner and diff. Apply only after user review using the host's normal file-edit flow.
 
-Externalization is not deletion: leave an inline invariant and resolvable one-hop link, and include the linked file in faithfulness scoring. Re-derive protected sections for each repository; examples from another repository are not a universal set.
+Externalization is not deletion: leave an inline invariant and resolvable one-hop link, and include the linked file in faithfulness scoring. Intentional rule loss belongs to guided ablation. Re-derive protected sections for each repository; examples from another repository are not a universal set.
 
-See [METHODOLOGY.md](./METHODOLOGY.md) and the frozen [WORKFLOW.md](./WORKFLOW.md) Lab 001 artifact.
+See [METHODOLOGY.md](./METHODOLOGY.md), [WORKFLOW.md](./WORKFLOW.md) for the Lab 001 protocol, and [bakeoff-any-size.workflow.js](./bakeoff-any-size.workflow.js) for the generalized workflow.
 
 ## Guided ablation path
 

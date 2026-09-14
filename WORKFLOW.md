@@ -1,36 +1,40 @@
-# Bake-off Workflow (reproducibility artifact)
+# Bake-off Workflows
 
-The four-strategy compaction bake-off is a Claude Code **dynamic workflow**. The exact script
-that produced Context Diet — Lab 001 is preserved here so the experiment can be replayed.
+The repository keeps the original `bakeoff.workflow.js` unchanged as the Context Diet — Lab 001
+provenance artifact. For normal use, `bakeoff-any-size.workflow.js` is the generalized Claude Code
+dynamic workflow: it accepts any context file, treats the limit as optional, and includes a no-op
+control so a rewrite is recommended only when it materially reduces inline size.
 
-## What it does
+## Any-size workflow
 
-1. **Inventory** — extract an exhaustive, atomic rule inventory from the original file (the
-   scientific control). Each rule tagged `loadBearing` if CI-enforced/incident-codified.
-2. **Compact** — run 4 candidate strategies in parallel (externalize, condense, telegraphic,
-   hybrid), each producing a proposed rewrite + any linked files.
-3. **Verify** — adversarially audit each candidate against the inventory: every rule
-   present / weakened / missing (a rule moved to a linked file counts as present).
-4. **Score** — disqualify candidates over the hard limit or that drop a load-bearing rule;
-   winner = max faithfulness, tie-break on larger reduction.
+Pass workflow arguments as `{ file, limit, goal }`; `file` defaults to `CLAUDE.md`, and `limit` is
+optional. The workflow:
 
-## How to replay on a different context file
+1. **Inventories** every directive, invariant, operational fact, exact literal, procedure,
+   prohibition, dated state, and rationale.
+2. **Compacts** using condense, externalize, telegraphic, and hybrid strategies, plus a no-op.
+3. **Verifies** every inventoried item adversarially. A linked item counts only through a resolvable
+   one-hop route; weakened or missing items disqualify a candidate.
+4. **Recommends** the largest safe reduction meeting the supplied limit, or the no-op when no
+   candidate achieves at least a 1% reduction while retaining the complete inventory.
 
-1. Edit the constants at the top of `bakeoff.workflow.js`:
-   - `CLAUDE` → absolute path to the target file.
-   - `LIMIT` / `TARGET` → the harness char budget and your headroom target.
-   - The `CONSTRAINTS` string's "must stay fully inline" list → re-derive the do-not-touch set
-     for *your* file (which sections are CI-enforced or incident-codified?).
-2. In a Claude Code session in the target repo, invoke the workflow with that script.
-3. Feed the returned `winner.claudeMd` + `winner.newFiles` to Phase C (apply), then run
-   `context_diet.py <file> --json` for the after-measurement and `make_charts.py` for the charts.
+The workflow only returns proposed artifacts. The host presents the candidate and diff, then uses
+its normal review-gated file-edit flow. Intentional rule loss belongs to the separate guided-ablation
+path below. After applying a candidate, run `context_diet.py <file> --json` and validate any linked
+files before committing.
 
-See [METHODOLOGY.md](./METHODOLOGY.md) §4 for the full reproduction protocol and §5 for threats
-to validity. The workflow is stochastic in candidate *wording* but deterministic in *which rules
-must survive* — cache the winning corpus and re-score it for a strict replay.
+## Replaying Lab 001
 
-> The canonical script is committed alongside this note as `bakeoff.workflow.js` and remains
-> unchanged as the Lab 001 provenance artifact.
+To reproduce the original experiment, use the frozen `bakeoff.workflow.js` and its documented
+parameters. It remains tied to the original `CLAUDE.md`, 40,000-character limit, and Lab 001
+protected sections by design. Use the any-size workflow for a different repository or context type.
+
+See [METHODOLOGY.md](./METHODOLOGY.md) §4 for the reproduction protocol and §5 for threats to
+validity. Both workflows are stochastic in candidate wording; retain the returned corpus and
+re-score it when strict replay is required.
+
+> The canonical Lab 001 script is `bakeoff.workflow.js`; the generalized script is
+> `bakeoff-any-size.workflow.js`.
 
 ## Guided-ablation evaluator
 

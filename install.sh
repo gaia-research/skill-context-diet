@@ -15,6 +15,7 @@ FILES=(
   ABLATION.md
   WORKFLOW.md
   bakeoff.workflow.js
+  bakeoff-any-size.workflow.js
   ablation.workflow.js
 )
 
@@ -112,6 +113,7 @@ PYTHONPYCACHEPREFIX="${STAGE_DIR}/.pycache" python3 -m py_compile \
   "${STAGE_DIR}/context_diet.py" "${STAGE_DIR}/context_diet_ablation.py"
 rm -rf "${STAGE_DIR}/.pycache"
 grep -q '^name: context-diet$' "${STAGE_DIR}/SKILL.md"
+grep -q 'export const meta' "${STAGE_DIR}/bakeoff-any-size.workflow.js"
 grep -q 'export const meta' "${STAGE_DIR}/ablation.workflow.js"
 
 if [ -d "$INSTALL_DIR" ]; then

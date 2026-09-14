@@ -1,15 +1,15 @@
 # context-diet
 
-**Your `CLAUDE.md` is over the limit. Which rules is the harness about to silently drop?**
+**Your `CLAUDE.md` is costly to reread. Which rules still earn their place?**
 
 Claude Code may truncate CLAUDE.md past 40,000 chars. Boss, run /context-diet CLAUDE.md first—compact rules, then make bounded context ablation face evidence.
 
 <img width="1672" height="941" alt="Generated image 3" src="https://github.com/user-attachments/assets/6b2c2aa7-7294-4e53-81bf-72cfd1cd8817" />
 
 Claude Code warns past **40,000 characters** and may truncate beyond it — quietly disabling
-whatever rules fell past the cutoff. The same is true for any agent-context file: `.cursorrules`,
-`AGENTS.md`, a raw system prompt. `context-diet` measures where the budget goes, section by
-section, then compacts the file under the limit **while proving no rule was lost**.
+whatever rules fell past the cutoff. The recurring context cost applies to any agent-context file:
+`.cursorrules`, `AGENTS.md`, or a raw system prompt. `context-diet` measures where the budget goes,
+section by section, then compacts it under an optional limit **while proving no rule was lost**.
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/gaia-research/skill-context-diet/main/install.sh)
@@ -40,8 +40,9 @@ Largest sections (compaction targets)
   3,325     831    435  Known Skill Explorer Issues
 ```
 
-That's the measurement. The skill then runs a **bake-off** of compaction strategies and applies
-the one that shrinks the most *without losing a single rule*.
+That's the measurement. The skill then runs a **bake-off** of compaction strategies and recommends
+the largest safe reduction *without losing a single rule* — or keeps the no-op when no candidate
+materially improves the file.
 
 ---
 
@@ -53,8 +54,8 @@ ships a state that breaks CI, and the next agent works around it, and the drift 
 
 So compaction here is a **two-objective** problem:
 
-1. **Reduce size** under the limit.
-2. **Retain 100% of rules** — measured, not assumed.
+1. **Reduce inline size** under an optional limit, or reduce recurring cost at any size.
+2. **Retain 100% of rules** — measured, not assumed. Intentional rule loss belongs to guided ablation.
 
 `context-diet` extracts a ground-truth **rule inventory** from the original, generates several
 compaction candidates, then **adversarially audits** each one — classifying every rule as
@@ -91,7 +92,10 @@ python3 context_diet.py path/to/system-prompt.md --json > baseline.json
 /context-diet CLAUDE.md
 ```
 
-The `--json` baseline feeds the bake-off workflow and the chart generator.
+The `--json` baseline feeds the bake-off workflow and the chart generator. For normal compaction,
+`bakeoff-any-size.workflow.js` accepts `{ file, limit, goal }`; its limit is optional and its no-op
+control prevents an unnecessary rewrite. The original `bakeoff.workflow.js` remains the frozen Lab 001
+reproducibility artifact.
 
 ### Intentional context removal: guided ablation
 
