@@ -395,8 +395,16 @@ class AblationLifecycleTests(unittest.TestCase):
         self.assertIn("exactJudgment", workflow)
         self.assertIn("repetitions > 10", workflow)
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
-        for required in ("context_diet_ablation.py", "ABLATION.md", "bakeoff.workflow.js", "ablation.workflow.js"):
+        for required in ("context_diet_ablation.py", "ABLATION.md", "bakeoff.workflow.js",
+                         "bakeoff-any-size.workflow.js", "ablation.workflow.js"):
             self.assertIn(required, installer)
+        any_size = (ROOT / "bakeoff-any-size.workflow.js").read_text(encoding="utf-8")
+        self.assertIn("context-diet-any-size-bakeoff", any_size)
+        self.assertIn("const FILE =", any_size)
+        self.assertIn("const LIMIT =", any_size)
+        self.assertIn("title: 'No change'", any_size)
+        self.assertIn("MIN_REDUCTION_PCT", any_size)
+        self.assertIn("intentional rule loss must use guided ablation", any_size)
 
 
 if __name__ == "__main__":
